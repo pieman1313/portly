@@ -26,7 +26,7 @@ export function Card({
   children: ReactNode
   className?: string
   /**
-   * Cap the card at 85vh on a phone and scroll its body. Set false for a card
+   * Cap the card at 75vh on a phone and scroll its body. Set false for a card
    * that is meant to grow with the page — a long list reads better as part of
    * the page than as a small window onto itself, and nesting a scroller inside
    * the page scroller costs the user a gesture every time.
@@ -41,12 +41,12 @@ export function Card({
   // reaching the page once the card hits its own scroll limit, which is exactly
   // the trap the payments matrix used to have.
   const body = cap
-    ? 'max-h-[85vh] overflow-y-auto sm:max-h-none sm:overflow-visible'
+    ? 'max-h-[75vh] overflow-y-auto sm:max-h-none sm:overflow-visible'
     : ''
 
   return (
     <section
-      className={`bg-surface border border-border rounded-xl flex flex-col ${cap ? 'max-h-[85vh] sm:max-h-none' : ''} ${className}`}
+      className={`bg-surface border border-border rounded-xl flex flex-col ${cap ? 'max-h-[75vh] sm:max-h-none' : ''} ${className}`}
     >
       {(title || right) && (
         // Sticky so the card keeps saying what it is while its body scrolls

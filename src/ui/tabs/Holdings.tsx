@@ -324,7 +324,7 @@ export function Holdings() {
       >
         {/* One row on a phone — search, then a disclosure holding sort,
             direction and show-sold. Stacked, those controls plus the prose ran
-            to roughly 200px, which inside an 85vh card is most of a position.
+            to roughly 200px, which inside a 75vh card is most of a position.
             The disclosure button is `sm:hidden` and the panel is `sm:flex`, so
             from `sm` up the panel is simply always open and the row is the
             search-left / controls-right layout that was always here. */}

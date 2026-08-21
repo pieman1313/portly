@@ -245,7 +245,7 @@ for (const v of VIEWPORTS) {
         const h=sec.querySelector('h2'); const r=sec.getBoundingClientRect();
         const body=sec.lastElementChild; const bs=body?getComputedStyle(body):null;
         return {t:(h?.textContent??'(untitled)').slice(0,26), h:Math.round(r.height),
-                cap:Math.round(window.innerHeight*0.85), oy:bs?.overflowY,
+                cap:Math.round(window.innerHeight*0.75), oy:bs?.overflowY,
                 scrolls: body ? body.scrollHeight > body.clientHeight + 1 : false}
       }))`)
       console.log(`  CARDS ${tab}: ${d}`)
