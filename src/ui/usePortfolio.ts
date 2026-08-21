@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
 import { db, DEFAULT_SETTINGS } from '../db/schema'
 import { buildHoldings } from '../metrics/holdings'
 import { project12Months, forwardIncome as forwardIncomeOf } from '../metrics/forecast'
@@ -100,7 +100,7 @@ export function usePortfolio(): PortfolioView {
   const data = useLiveQuery(async () => {
     const [
       settings, files, instruments, overrides, transactions,
-      distributions, accruals, cashEvents, snapshots, fxRates,
+      distributions, accruals, cashEvents, snapshots, fxRates, quotes, profiles,
     ] = await Promise.all([
       db.settings.get('settings'),
       db.rawFiles.orderBy('importedAt').toArray(),
@@ -112,19 +112,16 @@ export function usePortfolio(): PortfolioView {
       db.cashEvents.toArray(),
       db.positions.toArray(),
       db.fxRates.toArray(),
+      db.quotes.toArray(),
+      db.profiles.toArray(),
     ])
     return {
       settings: settings ?? DEFAULT_SETTINGS,
       files, instruments, overrides, transactions,
-      distributions, accruals, cashEvents, snapshots, fxRates,
+      distributions, accruals, cashEvents, snapshots, fxRates, quotes, profiles,
     }
   }, [])
 
-  // Quotes and dividend profiles are session state, not persisted: they are
-  // fetched client-side on demand and must never be mistaken for statement
-  // truth. The market-data provider writes them into this module's cache.
-  const quotes = useQuoteCache()
-  const profiles = useProfileCache()
 
   return useMemo<PortfolioView>(() => {
     const today = todayISO()
@@ -139,6 +136,10 @@ export function usePortfolio(): PortfolioView {
     const cashEvents = live(data?.cashEvents)
     const snapshots = data?.snapshots ?? []
     const rates = asIndex(data?.fxRates ?? [])
+    // Fetched client-side and cached in IndexedDB. Never mistaken for statement
+    // truth: every quote carries its provenance and age, and the UI shows both.
+    const quotes = data?.quotes ?? []
+    const profiles = data?.profiles ?? []
     const base = settings.baseCurrency
     const net = settings.showNetDividends
 
@@ -218,7 +219,7 @@ export function usePortfolio(): PortfolioView {
       investedMissingFx: flows.missingFx.length,
       dividendsMissingFx,
     }
-  }, [data, quotes, profiles])
+  }, [data])
 }
 
 /** Soft-deleted rows are kept for provenance but must never reach a total. */
@@ -272,43 +273,3 @@ function safeXirr(
   return r === null ? null : r * 100
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Session caches for market data
-// ─────────────────────────────────────────────────────────────────────────────
-
-let quoteCache: Quote[] = []
-let profileCache: DividendProfile[] = []
-const listeners = new Set<() => void>()
-
-function emit() {
-  for (const l of listeners) l()
-}
-
-export function setQuotes(next: Quote[]): void {
-  quoteCache = next
-  emit()
-}
-
-export function setProfiles(next: DividendProfile[]): void {
-  profileCache = next
-  emit()
-}
-
-function useQuoteCache(): Quote[] {
-  return useSyncStore(() => quoteCache)
-}
-
-function useProfileCache(): DividendProfile[] {
-  return useSyncStore(() => profileCache)
-}
-
-function useSyncStore<T>(get: () => T): T {
-  return useSyncExternalStore(
-    (cb) => {
-      listeners.add(cb)
-      return () => listeners.delete(cb)
-    },
-    get,
-    get,
-  )
-}

@@ -4,10 +4,12 @@ import type {
   Accrual,
   CashEvent,
   Distribution,
+  DividendProfile,
   FxRate,
   Instrument,
   InstrumentOverride,
   PositionSnapshot,
+  Quote,
   RawFile,
   RawRow,
   Settings,
@@ -45,6 +47,16 @@ export class PortlyDb extends Dexie {
   fxRates!: Table<FxRate, string>
   settings!: Table<Settings, string>
 
+  /**
+   * Last known market data. Persisted, not session state, because the refresh
+   * is rate-limited to once every 15 minutes: without this a reload inside that
+   * window has no quotes AND is not allowed to fetch, so the portfolio silently
+   * falls back to the statement's closing prices. Provenance travels with each
+   * row, so a stale quote is labelled rather than mistaken for a fresh one.
+   */
+  quotes!: Table<Quote, string>
+  profiles!: Table<DividendProfile, string>
+
   constructor(name = 'portly') {
     super(name)
 
@@ -62,6 +74,13 @@ export class PortlyDb extends Dexie {
 
       fxRates: 'id, [base+quote], date',
       settings: 'id',
+    })
+
+    // v2 adds the market-data cache. Additive: no existing store is touched, so
+    // Dexie carries every row across untouched and there is nothing to migrate.
+    this.version(2).stores({
+      quotes: 'instrumentKey',
+      profiles: 'instrumentKey',
     })
   }
 }
@@ -102,6 +121,12 @@ export async function storageEstimate(): Promise<{ usage: number; quota: number 
   if (!navigator.storage?.estimate) return null
   const { usage = 0, quota = 0 } = await navigator.storage.estimate()
   return { usage, quota }
+}
+
+/** Drop cached market data, forcing the next refresh to go to the network. */
+export async function clearMarketData(): Promise<void> {
+  await Promise.all([db.quotes.clear(), db.profiles.clear()])
+  await saveSettings({ lastRefresh: null })
 }
 
 /** Wipe only the derived tables. raw_files and raw_rows are never touched. */

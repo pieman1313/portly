@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react'
 import { db, saveSettings } from '../db/schema'
 import { fetchRatesRange } from '../providers/frankfurter'
 import { refreshDividendProfiles, refreshQuotes } from '../providers/index'
-import { setProfiles, setQuotes } from './usePortfolio'
 import type {
   Currency,
   Instrument,
@@ -107,7 +106,10 @@ export function useMarketData() {
         }
         warnings.push(...r.warnings)
       }
-      setQuotes(quotes)
+      // Persisted, not held in memory: the staleness gate blocks a re-fetch for
+      // 15 minutes, so a reload inside that window would otherwise leave the
+      // app with no quotes and no permission to get any.
+      if (quotes.length) await db.quotes.bulkPut(quotes)
 
       // 3. Dividend profiles. These drive the forward projection; without them
       //    the forecast falls back to declared accruals only, which is honest
@@ -122,7 +124,7 @@ export function useMarketData() {
       const profiles = profileResults.flatMap((r) => (r.profile ? [r.profile] : []))
       profilesOk = profiles.length
       for (const r of profileResults) warnings.push(...r.warnings)
-      setProfiles(profiles)
+      if (profiles.length) await db.profiles.bulkPut(profiles)
 
       const lastRun = new Date().toISOString()
       await saveSettings({ lastRefresh: lastRun })

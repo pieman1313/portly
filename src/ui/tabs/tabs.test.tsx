@@ -125,6 +125,35 @@ describe('with an imported statement', () => {
   })
 })
 
+describe('cached market data survives a reload', () => {
+  beforeEach(async () => {
+    await wipe()
+    await importStatementText(FIXTURE, 'activity-basic.csv')
+  })
+
+  it('values a holding from a quote left in IndexedDB by an earlier session', async () => {
+    // Regression: quotes used to live in a module-level cache. The auto-refresh
+    // only re-fetches every 15 minutes, so a reload inside that window had no
+    // quotes AND no permission to fetch any, and the portfolio silently fell
+    // back to the statement's closing prices with no indication anything had
+    // changed. Persisting them is what makes the rate limit survivable.
+    await db.quotes.put({
+      instrumentKey: '222222222', // ACME
+      price: 99,
+      currency: 'USD',
+      previousClose: 98,
+      provenance: { source: 'stockanalysis', asOf: new Date().toISOString() },
+    })
+
+    window.location.hash = '#/holdings'
+    renderTab(<App />)
+    await waitFor(() => expect(pageText()).toMatch(/ACME/))
+    // 100.25 shares at the cached 99, not at the fixture's 55.2 close.
+    await waitFor(() => expect(pageText()).toMatch(/9,924/))
+    expectNoPoison()
+  })
+})
+
 describe('import idempotency through the UI stack', () => {
   beforeEach(wipe)
 

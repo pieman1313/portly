@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { Badge, Card, EmptyState, Money } from '../components/primitives'
-import { setProfiles, setQuotes, usePortfolio } from '../usePortfolio'
+import { usePortfolio } from '../usePortfolio'
 import type { PortfolioView } from '../usePortfolio'
 import { useMarketData } from '../useMarketData'
 import type { RefreshState } from '../useMarketData'
 import { deleteFile, importStatementFile, rederiveAll } from '../../db/import'
-import { clearEverything, saveSettings, storageEstimate } from '../../db/schema'
+import { clearEverything, clearMarketData, saveSettings, storageEstimate } from '../../db/schema'
 import { exportBackup, readBackup, restoreBackup } from '../../db/backup'
 import type { BackupPayload, TableDump } from '../../db/backup'
 import type {
@@ -753,13 +753,12 @@ function MarketDataSection({ view }: { view: PortfolioView }) {
   const setEnabled = (next: boolean) => {
     setSaveError(null)
     if (!next) {
-      // Quotes and dividend profiles live in a session cache, not in Dexie, so
-      // switching market data off would otherwise leave every other screen
-      // still valued at live prices until the tab is reloaded — exactly the
-      // opposite of what the copy right next to this switch promises. Drop
-      // them here so "off" really does mean statement closing prices.
-      setQuotes([])
-      setProfiles([])
+      // Cached quotes and dividend profiles outlive the session now that they
+      // are in Dexie, so switching market data off would otherwise leave every
+      // other screen valued at live prices indefinitely — the opposite of what
+      // the copy beside this switch promises. Drop them so "off" really does
+      // mean the statement's closing prices.
+      clearMarketData().catch((e: Error) => setSaveError(e.message))
     }
     saveSettings({ enableMarketData: next }).catch((e: Error) => setSaveError(e.message))
   }
