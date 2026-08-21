@@ -36,14 +36,25 @@ const VENUE_PREFIX = new Map<string, string>([
   ['LSEETF', 'LON'],
   ['LSE', 'LON'],
   ['AEB', 'AMS'],
-  ['BVME.ETF', 'MIL'],
-  ['BVME', 'MIL'],
+  // Borsa Italiana is BIT, not MIL, and Euronext Paris is EPA, not PAR.
+  // Both were wrong from the start and neither had ever returned a price:
+  // MIL-SWDA and PAR-MC 404, BIT-SWDA and EPA-MC are 200.
+  ['BVME.ETF', 'BIT'],
+  ['BVME', 'BIT'],
+  ['SBF', 'EPA'],
   ['IBIS', 'ETR'],
   ['IBIS2', 'ETR'],
   ['XETRA', 'ETR'],
-  ['SBF', 'PAR'],
   ['SEHK', 'HKG'],
   ['TSE', 'TSX'],
+  // Verified live against a known listing on each venue before adding.
+  ['EBS', 'SWX'],
+  ['SWX', 'SWX'],
+  ['VSE', 'VIE'],
+  ['BM', 'BME'],
+  ['OSE', 'OSL'],
+  ['TSEJ', 'TYO'],
+  ['ASX', 'ASX'],
 ])
 
 const US_VENUES = new Set([
@@ -68,12 +79,21 @@ const US_VENUES = new Set([
  */
 const VENUE_CURRENCY = new Map<string, Currency>([
   ['AMS', 'EUR'],
-  ['MIL', 'EUR'],
+  ['BIT', 'EUR'],
   ['ETR', 'EUR'],
-  ['PAR', 'EUR'],
+  ['EPA', 'EUR'],
+  ['BME', 'EUR'],
+  ['VIE', 'EUR'],
   ['HKG', 'HKD'],
   ['TSX', 'CAD'],
+  ['SWX', 'CHF'],
+  ['OSL', 'NOK'],
+  ['TYO', 'JPY'],
+  ['ASX', 'AUD'],
 ])
+
+/** Every prefix the venue table can emit — used to classify a manual override. */
+const KNOWN_PREFIXES = new Set(VENUE_PREFIX.values())
 
 export function mapListingExchange(listingExchange: string | null | undefined): VenueMapping {
   const key = (listingExchange ?? '').trim().toUpperCase()
@@ -129,6 +149,15 @@ export interface SymbolResolution {
   confidence: SymbolConfidence
   /** Set whenever confidence is low, so Settings can prompt for an override. */
   note: string | null
+  /**
+   * Which stockanalysis path form these candidates use. `q` addresses an
+   * exchange-prefixed listing, `s` addresses a US symbol. They are not
+   * interchangeable: /api/quotes/q/AAPL is a 404 and /api/quotes/s/LON-IUKD is
+   * a 404. Carried explicitly rather than sniffed from the string, because a
+   * US ticker such as BRK-B is indistinguishable from a prefixed one.
+   */
+  pathKind: 'q' | 's'
+
 }
 
 /**
@@ -143,7 +172,7 @@ export function resolveSymbolCandidates(
   override?: ProviderOverride | null,
 ): SymbolResolution {
   if (override?.excluded === true) {
-    return { candidates: [], confidence: 'high', note: 'excluded by user' }
+    return { candidates: [], confidence: 'high', note: 'excluded by user', pathKind: 'q' }
   }
 
   const manual = override?.providerSymbol
@@ -152,14 +181,20 @@ export function resolveSymbolCandidates(
     // A garbage override is reported, never silently discarded: falling back to
     // auto-resolution behind the user's back is how you end up on the US JEPI.
     if (!SAFE_OVERRIDE.test(up)) {
-      return { candidates: [], confidence: 'low', note: `override "${manual}" is not a valid symbol` }
+      return {
+        candidates: [], confidence: 'low', pathKind: 'q',
+        note: `override "${manual}" is not a valid symbol`,
+      }
     }
-    return { candidates: [up], confidence: 'high', note: null }
+    // An override may name either form. A recognised venue prefix means the
+    // exchange-addressed path; anything else is treated as a US symbol.
+    const prefixed = KNOWN_PREFIXES.has(up.split('-')[0] ?? '')
+    return { candidates: [up], confidence: 'high', note: null, pathKind: prefixed ? 'q' : 's' }
   }
 
   // Cash forex has no listing and no provider symbol; FX comes from Frankfurter.
   if (inst.assetCategory === 'Forex' || inst.assetCategory === 'Cash') {
-    return { candidates: [], confidence: 'high', note: 'forex is priced from FX rates' }
+    return { candidates: [], confidence: 'high', note: 'forex is priced from FX rates', pathKind: 'q' }
   }
 
   const reported: string[] = []
@@ -185,7 +220,7 @@ export function resolveSymbolCandidates(
 
   const tickers = [...reported, ...guessed]
   if (tickers.length === 0) {
-    return { candidates: [], confidence: 'low', note: 'no usable ticker on the instrument' }
+    return { candidates: [], confidence: 'low', note: 'no usable ticker on the instrument', pathKind: 'q' }
   }
 
   const venue = mapListingExchange(inst.listingExchange)
@@ -194,10 +229,12 @@ export function resolveSymbolCandidates(
       candidates: tickers.map((t) => `${venue.prefix}-${t}`),
       confidence: 'high',
       note: null,
+      pathKind: 'q',
     }
   }
   if (venue.kind === 'us') {
-    return { candidates: tickers, confidence: 'high', note: null }
+    // US venues address by bare symbol on the `s` path.
+    return { candidates: tickers, confidence: 'high', note: null, pathKind: 's' }
   }
 
   // Unknown venue: the bare ticker is all we have and it is exactly the form that
@@ -205,6 +242,7 @@ export function resolveSymbolCandidates(
   return {
     candidates: tickers,
     confidence: 'low',
+    pathKind: 's',
     note: `unknown listing exchange "${inst.listingExchange ?? ''}" — a bare ticker may match a different security`,
   }
 }

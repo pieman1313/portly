@@ -2,7 +2,7 @@ import { derive } from '../ingest/derive'
 import { parseStatement } from '../ingest/statement'
 import { PARSER_VERSION } from '../domain/types'
 import type { ImportReport, Instrument, RawFile, RawRow } from '../domain/types'
-import { db, requestPersistence } from './schema'
+import { db, getSettings, requestPersistence, saveSettings } from './schema'
 
 /**
  * Import orchestration: bytes in, deduplicated entities out.
@@ -99,6 +99,7 @@ export async function importStatementText(
 
   const counts = await persistBundle(rawFile, rows, bundle)
 
+  await adoptBaseCurrency(rawFile)
   await requestPersistence()
 
   const overlapping = Object.values(counts.skipped).some((n) => n > 0)
@@ -111,6 +112,25 @@ export async function importStatementText(
     added: counts.added,
     skipped: counts.skipped,
   }
+}
+
+/**
+ * Take the base currency from the statement, but only on the very first import.
+ *
+ * The default is USD, and a EUR-based IBKR account would otherwise report in
+ * dollars forever unless the user found the setting. It is only correct to do
+ * this once: after that the setting is the user's, and a later statement from a
+ * second account in another base must not silently redenominate the whole app.
+ */
+async function adoptBaseCurrency(file: RawFile): Promise<void> {
+  const stated = (file.baseCurrency ?? '').trim().toUpperCase()
+  if (!/^[A-Z]{3}$/.test(stated)) return
+  // Count files, not settings: a settings row exists as soon as anything is
+  // saved, so its presence says nothing about whether data has been imported.
+  if ((await db.rawFiles.count()) > 1) return
+  const settings = await getSettings()
+  if (settings.baseCurrency === stated) return
+  await saveSettings({ baseCurrency: stated })
 }
 
 type Bundle = ReturnType<typeof derive>

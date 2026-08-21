@@ -293,11 +293,37 @@ export function buildHoldings(
     // An excluded holding contributes to no total, so a missing price for it is
     // not a gap in the numbers. Counting it here inflated the "N holdings have
     // no price" warning with instruments the user had deliberately switched off.
-    if (priced === null && !isZero(quantity, EPS_QTY) && override?.excluded !== true) {
+    // Deliberately after the multiplier guard below sets `unsupportedMultiplier`
+    // — see the reordering note there. Kept as one condition so a holding we
+    // refuse to value is always reported as unvalued, whatever the reason.
+
+    // Contract multiplier. 1 for every cash equity, typically 100 for an option
+    // or a future — and this engine is built for cash equities throughout.
+    //
+    // Both sides of the P/L are computed per unit: `replayLedger` builds cost as
+    // quantity x price, and market value below is quantity x quote. Scaling one
+    // and not the other invents a 99% loss; scaling neither keeps the P/L
+    // internally consistent but understates the position by 100x, which then
+    // corrupts every portfolio weight and total around it.
+    //
+    // Doing it properly means threading the multiplier through lots, sales,
+    // realised P/L and the reconciliation checks. Until that exists, refuse to
+    // value the position rather than publish a number that is wrong by two
+    // orders of magnitude: the row shows "—" and says why, which is the same
+    // contract every other unknown in this app honours.
+    const mult = Number.isFinite(instrument?.multiplier) ? (instrument?.multiplier ?? 1) : 1
+    const unsupportedMultiplier = mult !== 1
+
+    const marketValue =
+      priced === null || unsupportedMultiplier ? null : quantity * priced.price
+
+    if (
+      (priced === null || unsupportedMultiplier) &&
+      !isZero(quantity, EPS_QTY) &&
+      override?.excluded !== true
+    ) {
       unpriced.push(key)
     }
-
-    const marketValue = priced === null ? null : quantity * priced.price
     const marketValueBase =
       priced === null || marketValue === null
         ? null

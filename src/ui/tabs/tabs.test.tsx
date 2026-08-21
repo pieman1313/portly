@@ -4,7 +4,7 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { installBrowserStubs, renderTab } from '../../test/render'
 import { importStatementText } from '../../db/import'
-import { db } from '../../db/schema'
+import { db, getSettings } from '../../db/schema'
 import { App } from '../../App'
 
 /**
@@ -122,6 +122,41 @@ describe('with an imported statement', () => {
     renderTab(<App />)
     await waitFor(() => expect(pageText()).toMatch(/activity-basic\.csv/))
     expectNoPoison()
+  })
+})
+
+describe('base currency', () => {
+  beforeEach(wipe)
+
+  it('adopts the base currency stated by the first statement', async () => {
+    // A EUR-based IBKR account would otherwise report in dollars forever,
+    // because the built-in default is USD and nothing read the statement.
+    const eur = FIXTURE.replace(
+      'Account Information,Data,Base Currency,USD',
+      'Account Information,Data,Base Currency,EUR',
+    )
+    expect(eur).not.toBe(FIXTURE)
+    await importStatementText(eur, 'eur.csv')
+    expect((await getSettings()).baseCurrency).toBe('EUR')
+  })
+
+  it('does not redenominate the app when a second account arrives', async () => {
+    await importStatementText(FIXTURE, 'usd.csv')
+    expect((await getSettings()).baseCurrency).toBe('USD')
+
+    // Same content, different account and base. Adopting this would silently
+    // reinterpret every figure already on screen.
+    const other = FIXTURE
+      .replace('Account Information,Data,Account,U00000001', 'Account Information,Data,Account,U00000002')
+      .replace('Account Information,Data,Base Currency,USD', 'Account Information,Data,Base Currency,EUR')
+    await importStatementText(other, 'second.csv')
+    expect((await getSettings()).baseCurrency).toBe('USD')
+  })
+
+  it('leaves the default alone when the statement does not say', async () => {
+    const silent = FIXTURE.replace('Account Information,Data,Base Currency,USD', '')
+    await importStatementText(silent, 'quiet.csv')
+    expect((await getSettings()).baseCurrency).toBe('USD')
   })
 })
 

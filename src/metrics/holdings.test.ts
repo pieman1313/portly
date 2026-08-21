@@ -375,3 +375,38 @@ describe('cost basis method', () => {
     expect(totalF).toBeCloseTo(totalA, 9)
   })
 })
+
+describe('contract multiplier', () => {
+  it('refuses to value an instrument whose multiplier is not 1', () => {
+    // An option contract: 1 contract quoted at 2.50, 100 shares per contract.
+    // Cost and market value are both computed per unit here, so scaling one
+    // invents a 99% loss and scaling neither understates the position 100x and
+    // corrupts every weight around it. Until the multiplier is threaded through
+    // lots, sales and realised P/L, "—" with a reason beats a number that is
+    // wrong by two orders of magnitude.
+    const p = buildHoldings(
+      [txn('OPT', '2025-02-01', 1, 2.5, { basis: 250 })],
+      [instrument('OPT', { assetCategory: 'Options', multiplier: 100 })],
+      [quote('OPT', 3)],
+      [],
+      SETTINGS,
+      { asOf: '2025-12-31' },
+    )
+    const h = p.holdings[0]
+    expect(h?.marketValue).toBeNull()
+    expect(h?.marketValueBase).toBeNull()
+    expect(p.unpriced).toContain('OPT')
+  })
+
+  it('leaves a cash equity untouched', () => {
+    const p = buildHoldings(
+      [txn('EQ', '2025-02-01', 10, 5, { basis: 50 })],
+      [instrument('EQ', { multiplier: 1 })],
+      [quote('EQ', 6)],
+      [],
+      SETTINGS,
+      { asOf: '2025-12-31' },
+    )
+    expect(p.holdings[0]?.marketValue).toBe(60)
+  })
+})

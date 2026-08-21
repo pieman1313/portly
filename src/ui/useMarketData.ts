@@ -80,6 +80,11 @@ export function useMarketData() {
       //    expectation, which is what lets the pence detector self-calibrate.
       const latestSnapshot = latestSnapshotByInstrument(input.snapshots)
       const held = heldInstruments(input)
+      // The previous quote is what makes the 20% move gate work at all. It was
+      // hardcoded to null, so the only live check was drift from a statement
+      // close that gets staler every month. Now that quotes are persisted there
+      // is a real previous value to compare against.
+      const previousByKey = new Map((await db.quotes.toArray()).map((q) => [q.instrumentKey, q]))
 
       const results = await refreshQuotes(
         held.map((instrument) => {
@@ -87,7 +92,7 @@ export function useMarketData() {
           return {
             instrument,
             override: input.overrides.find((o) => o.instrumentKey === instrument.key) ?? null,
-            previous: null,
+            previous: previousByKey.get(instrument.key) ?? null,
             statement: snap
               ? { closePrice: snap.closePrice, currency: snap.currency, asOf: snap.asOf }
               : null,

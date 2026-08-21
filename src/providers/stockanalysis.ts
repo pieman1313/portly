@@ -41,12 +41,24 @@ import type {
 
 const ID = 'stockanalysis' as const
 
-export function quoteUrl(symbol: string): string {
-  return `https://stockanalysis.com/api/quotes/q/${encodeURIComponent(symbol)}`
+/**
+ * `q` addresses an exchange-prefixed listing, `s` a US symbol. They are not
+ * interchangeable — /api/quotes/q/AAPL is a 404 and /api/quotes/s/LON-IUKD is a
+ * 404 — so the caller passes the form the resolver chose rather than this
+ * module guessing from the string. Guessing would misread a US ticker like
+ * BRK-B as venue "BRK".
+ *
+ * The symbol is already constrained to an allowlist by `resolve.ts` before it
+ * gets here; encodeURIComponent is belt and braces on a path segment.
+ */
+export type PathKind = 'q' | 's'
+
+export function quoteUrl(symbol: string, kind: PathKind = 'q'): string {
+  return `https://stockanalysis.com/api/quotes/${kind}/${encodeURIComponent(symbol)}`
 }
 
-export function dividendUrl(symbol: string): string {
-  return `https://stockanalysis.com/api/symbol/q/${encodeURIComponent(symbol)}/dividend`
+export function dividendUrl(symbol: string, kind: PathKind = 'q'): string {
+  return `https://stockanalysis.com/api/symbol/${kind}/${encodeURIComponent(symbol)}/dividend`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,8 +126,9 @@ export async function fetchQuote(
   symbol: string,
   opts: FetchOptions = {},
   now: Date = new Date(),
+  kind: PathKind = 'q',
 ): Promise<Result<SaQuote>> {
-  const res = await fetchJson(quoteUrl(symbol), opts)
+  const res = await fetchJson(quoteUrl(symbol, kind), opts)
   if (!res.ok) {
     recordFailure(ID, res.reason)
     return fail(`${symbol}: ${res.reason}`)
@@ -144,7 +157,7 @@ export function createStockanalysisPriceProvider(opts: FetchOptions = {}): Price
       const now = new Date()
       const misses: string[] = []
       for (const symbol of resolution.candidates) {
-        const res = await fetchQuote(symbol, opts, now)
+        const res = await fetchQuote(symbol, opts, now, resolution.pathKind)
         if (!res.ok) {
           misses.push(res.reason)
           continue
@@ -253,7 +266,7 @@ export function createStockanalysisDividendProvider(
       const now = new Date()
       const misses: string[] = []
       for (const symbol of resolution.candidates) {
-        const res = await fetchJson(dividendUrl(symbol), opts)
+        const res = await fetchJson(dividendUrl(symbol, resolution.pathKind), opts)
         if (!res.ok) {
           recordFailure(ID, res.reason)
           misses.push(`${symbol}: ${res.reason}`)

@@ -198,6 +198,22 @@ async function quoteOne(
     if (resolution.confidence === 'low' && resolution.note) {
       warnings.push(`symbol: ${resolution.note}`)
     }
+
+    // A low-confidence resolution is a bare ticker on the US path, which is
+    // exactly the form that returns a different company at a plausible price.
+    // The currency check cannot catch it when both are USD, so the only real
+    // defence is the drift check against the broker's own close — and without a
+    // close price there is nothing to check against. Refuse rather than guess:
+    // the statement price is a known-good fallback, a wrong security is not.
+    const verifiable =
+      isFiniteNumber(req.statement?.closePrice) && (req.statement?.closePrice ?? 0) > 0
+    if (resolution.confidence === 'low' && !verifiable) {
+      warnings.push(
+        'skipped the live lookup: an unrecognised exchange leaves only a bare ticker, ' +
+          'and with no statement close price there is no way to tell a correct match from ' +
+          'a different company. Set a symbol override in Settings to fetch it.',
+      )
+    } else {
     try {
       const res = await provider.quote(inst, {
         ...(override ?? {}),
@@ -218,6 +234,7 @@ async function quoteOne(
       }
     } catch (e) {
       warnings.push(`${provider.id} threw: ${e instanceof Error ? e.message : String(e)}`)
+    }
     }
   }
 

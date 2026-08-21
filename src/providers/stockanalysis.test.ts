@@ -259,7 +259,7 @@ describe('stockanalysis dividend provider', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-01-15T00:00:00Z'))
     mockRoutes({
-      [dividendUrl('AAPL')]: {
+      [dividendUrl('AAPL', 's')]: {
         status: 200,
         data: {
           list: [
@@ -327,7 +327,7 @@ describe('stockanalysis dividend regressions', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-01-15T00:00:00Z'))
     mockRoutes({
-      [dividendUrl('VUKE')]: {
+      [dividendUrl('LON-VUKE')]: {
         status: 200,
         data: {
           list: [
@@ -341,7 +341,7 @@ describe('stockanalysis dividend regressions', () => {
       },
     })
     const r = await createStockanalysisDividendProvider().profile(
-      inst({ symbol: 'VUKE', aliases: ['VUKE'], listingExchange: 'NASDAQ', tradeCurrency: 'GBP' }),
+      inst({ symbol: 'VUKE', aliases: ['VUKE'], listingExchange: 'LSE', tradeCurrency: 'GBP' }),
     )
     vi.useRealTimers()
     expect(r.ok).toBe(true)
