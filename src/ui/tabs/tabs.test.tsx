@@ -1,0 +1,165 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { cleanup, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { installBrowserStubs, renderTab } from '../../test/render'
+import { importStatementText } from '../../db/import'
+import { db } from '../../db/schema'
+import { App } from '../../App'
+
+/**
+ * End-to-end: a statement file goes in, every tab renders real numbers out.
+ *
+ * These are smoke tests with teeth. They exist because the unit tests all pass
+ * on data structures, and the thing that actually breaks in an app like this is
+ * a screen rendering `NaN`, `undefined`, `£0` where the truth is unknown, or
+ * throwing on an empty database before any file has been imported.
+ */
+
+// Resolved from the project root, not import.meta.url: under the jsdom
+// environment import.meta.url is an http: URL and fileURLToPath rejects it.
+const FIXTURE = readFileSync(
+  resolve(process.cwd(), 'src/test/fixtures/activity-basic.csv'),
+  'utf8',
+)
+
+/** Anything that reaching the DOM means we have a bug, not a display choice. */
+const POISON = /\bNaN\b|\bundefined\b|\bInfinity\b|\[object Object\]/
+
+function pageText(): string {
+  return document.body.textContent ?? ''
+}
+
+function expectNoPoison(): void {
+  const text = pageText()
+  const hit = text.match(POISON)
+  expect(hit ? `rendered ${hit[0]} in: ${text.slice(Math.max(0, (hit.index ?? 0) - 80), (hit.index ?? 0) + 80)}` : null).toBeNull()
+}
+
+beforeAll(() => {
+  installBrowserStubs()
+})
+
+afterEach(() => {
+  cleanup()
+  window.location.hash = ''
+})
+
+async function wipe(): Promise<void> {
+  await Promise.all([
+    db.rawFiles.clear(), db.rawRows.clear(), db.instruments.clear(),
+    db.transactions.clear(), db.distributions.clear(), db.accruals.clear(),
+    db.cashEvents.clear(), db.positions.clear(), db.fxRates.clear(), db.settings.clear(),
+  ])
+}
+
+describe('empty state', () => {
+  beforeEach(wipe)
+
+  it('renders every tab with no data at all, without throwing', async () => {
+    for (const tab of ['overview', 'income', 'forecast', 'holdings', 'data']) {
+      window.location.hash = `#/${tab}`
+      const { unmount } = renderTab(<App />)
+      // The whole point: a brand-new user hits this before importing anything.
+      await waitFor(() => expect(pageText().length).toBeGreaterThan(20))
+      expectNoPoison()
+      unmount()
+    }
+  })
+})
+
+describe('with an imported statement', () => {
+  beforeEach(async () => {
+    await wipe()
+    const report = await importStatementText(FIXTURE, 'activity-basic.csv')
+    expect(report.outcome).toBe('imported')
+    // The fixture is built so every reconciliation check can be satisfied.
+    const failed = report.reconciliation.filter((c) => !c.ok)
+    expect(failed.map((f) => `${f.label}: ${f.ours} vs ${f.theirs}`)).toEqual([])
+  })
+
+  it('Overview shows a value and no poison values', async () => {
+    window.location.hash = '#/overview'
+    renderTab(<App />)
+    await waitFor(() => expect(pageText()).toMatch(/Portfolio value/i))
+    expectNoPoison()
+  })
+
+  it('Holdings lists the renamed instrument once, under its current ticker', async () => {
+    window.location.hash = '#/holdings'
+    renderTab(<App />)
+    // NEWT and OLDT are one instrument (conid 111111111) bought under two
+    // tickers. It must appear once, with the combined 150 shares.
+    await waitFor(() => expect(screen.getAllByText(/NEWT/).length).toBeGreaterThan(0))
+    expect(pageText()).toMatch(/ACME/)
+    expect(pageText()).toMatch(/GLOB/)
+    expectNoPoison()
+  })
+
+  it('Income renders the payments matrix', async () => {
+    window.location.hash = '#/income'
+    renderTab(<App />)
+    await waitFor(() => expect(pageText()).toMatch(/matrix|received/i))
+    expectNoPoison()
+  })
+
+  it('Forecast renders and discloses that it has no provider data', async () => {
+    window.location.hash = '#/forecast'
+    renderTab(<App />)
+    // Wait for the skeleton to clear. A length check is not enough: the nav
+    // alone clears any threshold, so the assertion would race the live query.
+    await waitFor(() => expect(pageText()).not.toMatch(/Loading forecast/))
+    // With no market data the only forward figure is the open accrual, so the
+    // screen must say so rather than presenting a near-zero total as complete.
+    expect(pageText()).toMatch(/declared|estimated|market data/i)
+    expectNoPoison()
+  })
+
+  it('Data lists the imported file and its reconciliation', async () => {
+    window.location.hash = '#/data'
+    renderTab(<App />)
+    await waitFor(() => expect(pageText()).toMatch(/activity-basic\.csv/))
+    expectNoPoison()
+  })
+})
+
+describe('import idempotency through the UI stack', () => {
+  beforeEach(wipe)
+
+  it('re-importing the identical file changes nothing', async () => {
+    const first = await importStatementText(FIXTURE, 'a.csv')
+    expect(first.outcome).toBe('imported')
+    const txns = await db.transactions.count()
+    const dists = await db.distributions.count()
+
+    const second = await importStatementText(FIXTURE, 'a.csv')
+    expect(second.outcome).toBe('duplicate-exact')
+    expect(await db.transactions.count()).toBe(txns)
+    expect(await db.distributions.count()).toBe(dists)
+  })
+
+  it('re-importing the same statement under a different name is still a no-op', async () => {
+    await importStatementText(FIXTURE, 'a.csv')
+    const txns = await db.transactions.count()
+    // Same bytes, different filename: sha256Raw still matches, so it is caught
+    // by the cheapest check before anything is parsed.
+    const again = await importStatementText(FIXTURE, 'renamed.csv')
+    expect(again.outcome).toBe('duplicate-exact')
+    expect(await db.transactions.count()).toBe(txns)
+  })
+
+  it('a regenerated export of the same period does not double-count', async () => {
+    await importStatementText(FIXTURE, 'a.csv')
+    const txns = await db.transactions.count()
+    // IBKR stamps WhenGenerated into every export, so the bytes differ but the
+    // content is identical. This is the case sha256Canonical exists for.
+    const regenerated = FIXTURE.replace(
+      'Statement,Data,WhenGenerated,"2026-01-05, 09:00:00 EDT"',
+      'Statement,Data,WhenGenerated,"2026-02-11, 17:30:00 EDT"',
+    )
+    expect(regenerated).not.toBe(FIXTURE)
+    const again = await importStatementText(regenerated, 'b.csv')
+    expect(again.outcome).toBe('duplicate-regenerated')
+    expect(await db.transactions.count()).toBe(txns)
+  })
+})

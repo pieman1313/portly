@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.vscode/
+coverage/
+
+# Conductor scratch space. Also where the user's real IBKR statement lives —
+# never commit account data.
+.context/
+
+# Belt and braces: no brokerage export should ever be committed, wherever it lands.
+*IBKR*.csv
+*ibkr*.csv
+*.tsbuildinfo

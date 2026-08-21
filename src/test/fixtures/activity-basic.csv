@@ -1,0 +1,85 @@
+﻿Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers Ireland Limited
+Statement,Data,BrokerAddress,
+Statement,Data,Title,Activity Statement
+Statement,Data,Period,"January 1, 2025 - December 31, 2025"
+Statement,Data,WhenGenerated,"2026-01-05, 09:00:00 EDT"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Name,Test Person
+Account Information,Data,Account,U00000001
+Account Information,Data,Account Type,Individual
+Account Information,Data,Base Currency,USD
+Net Asset Value,Header,Asset Class,Prior Total,Current Long,Current Short,Current Total,Change
+Net Asset Value,Data,Cash ,0,100.5,0,100.5,100.5
+Net Asset Value,Data,Stock,0,"23,456.7800",0,"23,456.7800","23,456.7800"
+Net Asset Value,Data,Total,0,23557.28,0,23557.28,23557.28
+Change in NAV,Header,Field Name,Field Value
+Change in NAV,Data,Starting Value,0
+Change in NAV,Data,Deposits & Withdrawals,25000
+Change in NAV,Data,Dividends,310.5
+Change in NAV,Data,Withholding Tax,-15.25
+Change in NAV,Data,Commissions,-24
+Change in NAV,Data,Ending Value,23557.28
+Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code
+Open Positions,Data,Summary,Stocks,EUR,NEWT,150,1,40.5,6075,42.1,6315,240,
+Open Positions,Total,,Stocks,EUR,,,,,6075,,6315,240,
+Open Positions,Total,,Stocks,USD,,,,,7047,,7325.4,278.4,
+Open Positions,Data,Summary,Stocks,USD,ACME,100.25,1,50,5012.5,55.2,5533.8,521.3,
+Open Positions,Data,Summary,Stocks,USD,GLOB,80,1,"1,234.5600",98764.8,1300,104000,5235.2,
+Open Positions,Total,,Stocks,USD,,,,,103777.3,,109533.8,5756.5,
+Open Positions,Total,,Stocks,USD,,,,,110824.3,,116859.2,6034.9,
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,EUR,OLDT,"2025-03-10, 04:00:00",100,38.5,38.6,-3850,-3,3853,0,10,O
+Trades,Data,Order,Stocks,EUR,NEWT,"2025-11-20, 05:00:00",50,44.44,44.5,-2222,-3,2225,0,3,O
+Trades,SubTotal,,Stocks,EUR,NEWT,,150,,,-6072,-6,6078,0,13,
+Trades,Data,Order,Stocks,USD,ACME,"2025-02-01, 10:00:00",200.5,50,50.2,-10025,-4,10029,0,40.1,FPA;O;P
+Trades,Data,Order,Stocks,USD,ACME,"2025-09-15, 11:30:00",-100.25,60,59.8,6015,-4,-5014.5,996.5,-20.05,C;P
+Trades,Data,ClosedLot,Stocks,USD,ACME,"2025-02-01, 10:00:00",100.25,50,,5012.5,,5014.5,996.5,,
+Trades,SubTotal,,Stocks,USD,ACME,,100.25,,,-4010,-8,5014.5,996.5,20.05,
+Trades,Data,Order,Stocks,USD,GLOB,"2025-06-01, 09:00:00",80,"1,234.5600",1240,-98764.8,-8,98772.8,0,435.2,O
+Trades,SubTotal,,Stocks,USD,GLOB,,80,,,-98764.8,-8,98772.8,0,435.2,
+Trades,Total,,Stocks,USD,,,,,,-102774.8,-16,103787.3,996.5,455.25, 
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,,Proceeds,Comm in USD,,,MTM in USD,Code
+Trades,Data,Order,Forex,USD,EUR.USD,"2025-03-09, 17:00:00",4000,1.0850,,-4340,-2,,,1.25,AFx
+Trades,SubTotal,,Forex,USD,EUR.USD,,4000,,,-4340,-2,,,1.25,
+Trades,Total,,Forex,USD,,,,,,-4340,-2,,,1.25, 
+Deposits & Withdrawals,Header,Currency,Settle Date,Description,Amount
+Deposits & Withdrawals,Data,USD,2025-01-15,Electronic Fund Transfer,"25,000"
+Deposits & Withdrawals,Data,Total,,,25000
+Deposits & Withdrawals,Data,Total Deposits & Withdrawals in USD,,,25000
+Dividends,Header,Currency,Date,Description,Amount
+Dividends,Data,EUR,2025-06-20,OLDT(NL0000000001) Cash Dividend EUR 0.50 per Share (Ordinary Dividend),50
+Dividends,Data,Total,,,50
+Dividends,Data,Total in USD,,,54.25
+Dividends,Data,USD,2025-04-10,ACME(US0000000002) Cash Dividend USD 0.30 per Share (Mixed Income),60.15
+Dividends,Data,USD,2025-10-10,ACME(US0000000002) Cash Dividend USD 0.35 per Share (Mixed Income),35.09
+Dividends,Data,Total,,,95.24
+Dividends,Data,Total Dividends in USD,,,149.49
+Withholding Tax,Header,Currency,Date,Description,Amount,Code
+Withholding Tax,Data,EUR,2025-06-20,OLDT(NL0000000001) Cash Dividend EUR 0.50 per Share - NL Tax,-7.5,
+Withholding Tax,Data,Total,,,-7.5,
+Withholding Tax,Data,Total Withholding Tax in USD,,,-8.14,
+Interest,Header,Currency,Date,Description,Amount
+Interest,Data,USD,2025-08-05,USD Credit Interest for Jul-2025,12.34
+Interest,Data,Total,,,12.34
+Change in Dividend Accruals,Header,Asset Category,Currency,Symbol,Date,Ex Date,Pay Date,Quantity,Tax,Fee,Gross Rate,Gross Amount,Net Amount,Code
+Change in Dividend Accruals,Data,Starting Dividend Accruals in USD,,,,,,,,,,,0,
+Change in Dividend Accruals,Data,Stocks,EUR,OLDT,2025-06-10,2025-06-11,2025-06-20,100,7.4,0,0.5,50,42.6,Po
+Change in Dividend Accruals,Data,Stocks,EUR,OLDT,2025-06-10,2025-06-11,2025-06-20,100,7.5,0,0.5,50,42.5,Po
+Change in Dividend Accruals,Data,Stocks,EUR,OLDT,2025-06-10,2025-06-11,2025-06-20,100,-7.4,0,0.5,-50,-42.6,Re
+Change in Dividend Accruals,Data,Stocks,EUR,OLDT,2025-06-20,2025-06-11,2025-06-20,100,-7.5,0,0.5,-50,-42.5,Re
+Change in Dividend Accruals,Data,Stocks,EUR,NEWT,2025-12-30,2025-12-31,2026-01-15,150,0,0,0.42,63,63,Po
+Change in Dividend Accruals,Data,Total,,,,,,,0,0,,63,63,
+Change in Dividend Accruals,Data,Total in USD,,,,,,,0,0,,68.36,68.36,
+Change in Dividend Accruals,Data,Ending Dividend Accruals in USD,,,,,,,,,,,68.36,
+Financial Instrument Information,Header,Asset Category,Symbol,Description,Conid,Security ID,Underlying,Listing Exch,Multiplier,Type,Code
+Financial Instrument Information,Data,Stocks,"NEWT, OLDT",NEW NAME DIVIDEND FUND,111111111,NL0000000001,OLDT,AEB,1,ETF,
+Financial Instrument Information,Data,Stocks,ACME,"ACME CORP, CLASS ""A""",222222222,US0000000002,ACME,NASDAQ,1,COMMON,
+Financial Instrument Information,Data,Stocks,GLOB,GLOBAL GROWTH ETF,333333333,IE0000000003,GLOB,LSEETF,1,ETF,
+Codes,Header,Code,Meaning,Code (Cont.),Meaning (Cont.)
+Codes,Data,O,Opening Trade
+Codes,Data,C,Closing Trade
+Codes,Data,Po,Dividend accrual posted
+Codes,Data,Re,Dividend accrual reversed
+Notes/Legal Notes,Header,Type,Note
+Notes/Legal Notes,Data,,"Values are in the base currency, unless noted."

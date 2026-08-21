@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  /* Categorical chart palette, dark steps. Validated against our #131926
+     chart surface: lightness band, chroma floor, adjacent-pair CVD separation
+     (worst 8.4 protan), normal-vision floor (worst 19.3) and >=3:1 contrast all
+     pass. Assign these in FIXED ORDER and never cycle — a 9th series folds into
+     "Other" rather than inventing a hue.
+
+     Note the all-pairs cap: only the first three slots clear the floors when
+     every pair can appear adjacent (scatter, donut with tiny slices). Past
+     three in those forms, fold to "Other" or facet. */
+  --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500;
+  --c5: #d55181; --c6: #008300; --c7: #9085e9; --c8: #e66767;
+
+  /* Status. Reserved — never reused as a series colour, always shipped with an
+     icon or label so state is never conveyed by colour alone. */
+  --st-good: #0ca30c; --st-warn: #fab219; --st-serious: #ec835a; --st-crit: #d03b3b;
+
+  /* Sequential ramp for the holdings x month heatmap: one hue, light->dark. */
+  --seq1: #0d2b4d; --seq2: #14406f; --seq3: #1a5594; --seq4: #2a78d6; --seq5: #6aa9ec;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+  /* Respect notches and the iOS home indicator when installed as a PWA. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Tabular figures everywhere money appears, so columns of numbers line up
+   and digits do not jitter as live prices tick. */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
