@@ -7,10 +7,10 @@ import {
   monthKey,
   monthsBetween,
 } from '../../metrics/fx'
-import { isRegular } from '../../metrics/income'
-import type { PaymentsMatrix, Period, PeriodBucket } from '../../metrics/income'
+import { instrumentLabel, isRegular } from '../../metrics/income'
+import type { GroupedIncome, PaymentsMatrix, Period, PeriodBucket } from '../../metrics/income'
 import { saveSettings } from '../../db/schema'
-import { Columns, SEQUENTIAL, heatColor, seriesColor } from '../components/charts'
+import { Columns, SEQUENTIAL, foldStack, heatColor, seriesColor } from '../components/charts'
 import {
   Badge,
   Card,
@@ -47,11 +47,26 @@ const BASIS_OPTIONS = [
   { value: 'gross', label: 'Gross' },
 ]
 
+const SPLIT_OPTIONS = [
+  { value: 'ticker', label: 'By holding' },
+  { value: 'total', label: 'Total' },
+]
+
 /**
  * Colour is assigned by entity, from a fixed order, so the bar keeps its hue
  * no matter what else ends up on the screen.
  */
 const INCOME_ENTITIES = ['dividends']
+
+/**
+ * Eight coloured tickers, then one grey "Other". The palette has eight hues and
+ * a ninth is never invented; a legend longer than this is unreadable at 360px
+ * anyway, which is the real cap.
+ */
+const MAX_TICKERS = 8
+
+/** Stacked by holding unless the user asks for the plain total. */
+type Split = 'ticker' | 'total'
 
 const isPeriod = (v: string): v is Period =>
   v === 'month' || v === 'quarter' || v === 'year'
@@ -63,7 +78,11 @@ export function Income() {
   const base = view.settings.baseCurrency
   const net = view.settings.showNetDividends
 
-  const buckets = useMemo(() => view.incomeBy(period), [view.incomeBy, period])
+  // The grouped buckets are a superset of the plain ones — same totals, plus
+  // the per-holding split the chart stacks — so the tiles read them too rather
+  // than making the view model bucket the same payments twice.
+  const income = useMemo(() => view.incomeByGrouped(period), [view.incomeByGrouped, period])
+  const buckets = income.buckets
   // The tiles always talk in months ("best month", "average month"), so they
   // read their own monthly buckets rather than whatever the period toggle says.
   const monthly = useMemo(
@@ -97,12 +116,11 @@ export function Income() {
     [buckets],
   )
 
-  // instrumentKey -> ticker. The view model hands distributions over with the
-  // key only; labelling is presentation, not a metric.
-  const symbols = useMemo(
-    () => new Map(view.instruments.map((i) => [i.key, i.symbol])),
-    [view.instruments],
-  )
+  // instrumentKey -> ticker, the user's rename included. Built by the view
+  // model, not here: `view.matrix` is already labelled from the same map, and
+  // a second copy on this screen is how the chart legend and the matrix start
+  // calling one holding two different things.
+  const symbols = view.symbols
 
   // Persisted, not local: gross/net is a whole-app stance. `matrix` and
   // `totalDividendsBase` are built inside usePortfolio from this flag, and a
@@ -208,7 +226,8 @@ export function Income() {
         base={base}
         net={net}
         period={period}
-        buckets={buckets}
+        income={income}
+        symbols={symbols}
         trailing={trailing}
         missingFx={chartMissingFx}
       />
@@ -288,20 +307,51 @@ function IncomeChart({
   base,
   net,
   period,
-  buckets,
+  income,
+  symbols,
   trailing,
   missingFx,
 }: {
   base: Currency
   net: boolean
   period: Period
-  buckets: PeriodBucket[]
+  income: GroupedIncome
+  symbols: ReadonlyMap<string, string>
   trailing: Trailing | null
   missingFx: number
 }) {
+  // Stacked by default: "which holding paid me that" is the question the bar
+  // raises. The plain total stays one click away for anyone who only wants the
+  // cash-flow shape.
+  const [split, setSplit] = useState<Split>('ticker')
+
+  const buckets = income.buckets
+
+  // Colour and rank come from `income.order` — contribution over the WHOLE
+  // window — so a ticker keeps its hue when the period toggle reshapes the bars
+  // and when a smaller neighbour folds away.
+  const stack = useMemo(
+    () =>
+      foldStack(
+        buckets.map((b) => b.byInstrument),
+        (key) => instrumentLabel(key, symbols),
+        { max: MAX_TICKERS, order: income.order },
+      ),
+    [buckets, income.order, symbols],
+  )
+
+  // One contributor stacks into a bar identical to the total, so there is
+  // nothing to toggle and no legend worth its vertical space.
+  const splittable = stack.shown.length > 1
+  const byTicker = splittable && split === 'ticker'
+
   const data = useMemo(
-    () => buckets.map((b) => ({ label: bucketLabel(b.key, period), amount: b.amount })),
-    [buckets, period],
+    () =>
+      buckets.map((b, i) => ({
+        label: bucketLabel(b.key, period),
+        ...(byTicker ? stack.rows[i] ?? {} : { amount: b.amount }),
+      })),
+    [buckets, period, byTicker, stack.rows],
   )
 
   let peak = 0
@@ -310,6 +360,10 @@ function IncomeChart({
   // would flatten the whole axis to one tick.
   const dp = peak > 0 && peak < 100 ? 2 : 0
   const format = (v: number) => formatMoney(v, base, { dp, compact: true })
+  // The axis rounds and compacts to fit its ticks; the tooltip must not. A
+  // holding that paid 0.42 into a bar of 900 would otherwise be listed as "0"
+  // directly above a total that includes it.
+  const exact = (v: number) => formatMoney(v, base, { dp: 2 })
 
   const title = net ? 'Net dividends paid' : 'Gross dividends paid'
   // The trailing average is stated in words rather than drawn as a reference
@@ -343,20 +397,44 @@ function IncomeChart({
           No regular dividends to plot yet.
         </p>
       ) : (
-        <Columns
-          data={data}
-          xKey="label"
-          height={260}
-          stacked={false}
-          format={format}
-          series={[
-            {
-              key: 'amount',
-              name: title,
-              color: seriesColor('dividends', INCOME_ENTITIES),
-            },
-          ]}
-        />
+        <>
+          {splittable && (
+            <div className="mb-3 flex justify-end">
+              <Toggle
+                label="Bars"
+                options={SPLIT_OPTIONS}
+                value={split}
+                onChange={(v) => setSplit(v === 'total' ? 'total' : 'ticker')}
+              />
+            </div>
+          )}
+          <p className="sr-only">
+            {byTicker
+              ? `Bar chart of ${periodNoun(period).toLowerCase()} dividends, each bar split by holding, largest contributor first: ${stack.series
+                  .map((s) => s.name)
+                  .join(', ')}. The payments matrix below gives every holding's exact amount for every month.`
+              : `Bar chart of ${periodNoun(period).toLowerCase()} dividend totals. The payments matrix below breaks the same money down by holding.`}
+          </p>
+          <Columns
+            data={data}
+            xKey="label"
+            height={260}
+            stacked={byTicker}
+            format={format}
+            tooltipFormat={exact}
+            series={
+              byTicker
+                ? stack.series
+                : [
+                    {
+                      key: 'amount',
+                      name: title,
+                      color: seriesColor('dividends', INCOME_ENTITIES),
+                    },
+                  ]
+            }
+          />
+        </>
       )}
     </Card>
   )

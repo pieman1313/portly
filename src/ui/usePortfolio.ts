@@ -3,7 +3,13 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { db, DEFAULT_SETTINGS } from '../db/schema'
 import { buildHoldings } from '../metrics/holdings'
 import { project12Months, forwardIncome as forwardIncomeOf } from '../metrics/forecast'
-import { yields as computeYields, dividendsByPeriod, paymentsMatrix } from '../metrics/income'
+import {
+  yields as computeYields,
+  displaySymbols,
+  dividendsByPeriod,
+  dividendsByPeriodGrouped,
+  paymentsMatrix,
+} from '../metrics/income'
 import { asIndex, convert } from '../metrics/fx'
 import { externalFlows, xirr } from '../metrics/returns'
 import type { Period } from '../metrics/income'
@@ -42,6 +48,12 @@ export interface PortfolioView {
   instruments: Instrument[]
   overrides: InstrumentOverride[]
   transactions: Transaction[]
+  /**
+   * instrumentKey -> the ticker to print, the user's rename applied. Built
+   * once here so the matrix, the stacked chart and every payment list on a
+   * screen cannot each pick a different name for the same holding.
+   */
+  symbols: ReadonlyMap<string, string>
   distributions: Distribution[]
   accruals: Accrual[]
   cashEvents: CashEvent[]
@@ -58,6 +70,8 @@ export interface PortfolioView {
 
   /** Dividends actually received, bucketed by PAY date. */
   incomeBy: (period: Period) => ReturnType<typeof dividendsByPeriod>
+  /** The same buckets, each carrying the per-holding split that made it up. */
+  incomeByGrouped: (period: Period) => ReturnType<typeof dividendsByPeriodGrouped>
   matrix: ReturnType<typeof paymentsMatrix>
 
   totalDividendsBase: number
@@ -139,8 +153,13 @@ export function usePortfolio(): PortfolioView {
     const income = forwardIncomeOf(forecast)
     const yieldSet = computeYields(portfolio.holdings, income)
 
-    const labels = Object.fromEntries(instruments.map((i) => [i.key, i.symbol]))
-    const matrix = paymentsMatrix(distributions, base, rates, { net, labels })
+    // Overrides included: a ticker the user renamed on Holdings must not print
+    // its old symbol in the matrix while the chart beside it prints the new one.
+    const symbols = displaySymbols(instruments, overrides)
+    const matrix = paymentsMatrix(distributions, base, rates, {
+      net,
+      labels: Object.fromEntries(symbols),
+    })
 
     const { total: totalDividendsBase, missing: dividendsMissingFx } = sumBase(
       distributions, base, rates, net,
@@ -177,6 +196,7 @@ export function usePortfolio(): PortfolioView {
       instruments,
       overrides,
       transactions,
+      symbols,
       distributions,
       accruals,
       cashEvents,
@@ -188,6 +208,8 @@ export function usePortfolio(): PortfolioView {
       yields: yieldSet,
       xirrPct,
       incomeBy: (period: Period) => dividendsByPeriod(distributions, period, base, rates, { net }),
+      incomeByGrouped: (period: Period) =>
+        dividendsByPeriodGrouped(distributions, period, base, rates, { net }),
       matrix,
       totalDividendsBase,
       totalPnlBase,

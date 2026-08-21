@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import type { Distribution, DividendProfile, FxRate } from '../domain/types'
+import type {
+  Distribution,
+  DividendProfile,
+  FxRate,
+  Instrument,
+  InstrumentOverride,
+} from '../domain/types'
 import {
+  displaySymbols,
   dividendsByPeriod,
+  dividendsByPeriodGrouped,
   effectiveWithholdingRate,
+  instrumentLabel,
   isRegular,
   paymentsMatrix,
   ttmPerShare,
+  UNATTRIBUTED,
+  UNATTRIBUTED_LABEL,
   withholdingRateByInstrument,
   yields,
 } from './income'
@@ -149,6 +160,171 @@ describe('dividendsByPeriod buckets by PAY date', () => {
     const rows = [dist('ACME', '2025-04-10', 100, { divType: 'Return of Capital' })]
     expect(dividendsByPeriod(rows, 'year', 'USD', [])).toEqual([])
     expect(dividendsByPeriod(rows, 'year', 'USD', [], { regularOnly: false })[0]?.gross).toBe(100)
+  })
+})
+
+describe('dividendsByPeriodGrouped splits a bucket without changing it', () => {
+  const rows = [
+    dist('ACME', '2025-04-10', 60),
+    dist('GLOB', '2025-04-15', 10),
+    dist('ACME', '2025-06-10', 40),
+    dist('TINY', '2025-06-12', 5),
+  ]
+
+  it('produces exactly the buckets dividendsByPeriod does', () => {
+    const plain = dividendsByPeriod(rows, 'month', 'USD', [])
+    const grouped = dividendsByPeriodGrouped(rows, 'month', 'USD', [])
+    expect(grouped.buckets.map(({ byInstrument: _drop, ...b }) => b)).toEqual(plain)
+  })
+
+  it('has segments that sum to the bar, bucket by bucket', () => {
+    const grouped = dividendsByPeriodGrouped(rows, 'month', 'USD', [])
+    for (const bucket of grouped.buckets) {
+      const parts = Object.values(bucket.byInstrument).reduce((t, v) => t + v, 0)
+      expect(parts).toBeCloseTo(bucket.amount, 9)
+    }
+    expect(grouped.buckets[0]?.byInstrument).toEqual({ ACME: 60, GLOB: 10 })
+    // A month with no payment carries no segments rather than a row of zeros.
+    expect(grouped.buckets[1]?.byInstrument).toEqual({})
+  })
+
+  it('totals to the same money as the ungrouped chart', () => {
+    const plain = dividendsByPeriod(rows, 'quarter', 'USD', [])
+    const grouped = dividendsByPeriodGrouped(rows, 'quarter', 'USD', [])
+    const fromBars = plain.reduce((t, b) => t + b.amount, 0)
+    const fromInstruments = Object.values(grouped.totals).reduce((t, v) => t + v, 0)
+    expect(fromInstruments).toBeCloseTo(fromBars, 9)
+    expect(fromInstruments).toBeCloseTo(115, 9)
+  })
+
+  it('orders by contribution, descending — that order is the colour order', () => {
+    // Not first-seen (ACME, GLOB, TINY happens to match) and not alphabetical.
+    const grouped = dividendsByPeriodGrouped(
+      [dist('ZED', '2025-04-10', 90), dist('ACME', '2025-04-11', 5)],
+      'month',
+      'USD',
+      [],
+    )
+    expect(grouped.order).toEqual(['ZED', 'ACME'])
+    // Stable across the period toggle: the same window, so the same ranking.
+    expect(dividendsByPeriodGrouped(rows, 'month', 'USD', []).order).toEqual(
+      dividendsByPeriodGrouped(rows, 'year', 'USD', []).order,
+    )
+    expect(dividendsByPeriodGrouped(rows, 'month', 'USD', []).order).toEqual([
+      'ACME',
+      'GLOB',
+      'TINY',
+    ])
+  })
+
+  it('breaks a tie on the key so two equal payers never swap hues', () => {
+    const tied = [dist('BBB', '2025-04-10', 10), dist('AAA', '2025-04-11', 10)]
+    expect(dividendsByPeriodGrouped(tied, 'month', 'USD', []).order).toEqual(['AAA', 'BBB'])
+  })
+
+  it('splits on the same basis as the bar, net or gross', () => {
+    const taxed = [
+      dist('US', '2025-06-20', 100, { tax: 30, net: 70 }),
+      dist('IE', '2025-06-20', 50, { tax: 0, net: 50 }),
+    ]
+    const gross = dividendsByPeriodGrouped(taxed, 'year', 'USD', [])
+    expect(gross.buckets[0]?.amount).toBe(150)
+    expect(gross.buckets[0]?.byInstrument).toEqual({ US: 100, IE: 50 })
+    expect(gross.order).toEqual(['US', 'IE'])
+
+    const net = dividendsByPeriodGrouped(taxed, 'year', 'USD', [], { net: true })
+    expect(net.buckets[0]?.amount).toBe(120)
+    expect(net.buckets[0]?.byInstrument).toEqual({ US: 70, IE: 50 })
+    // Withholding can reorder the stack: US out-pays IE gross, barely net.
+    expect(net.totals).toEqual({ US: 70, IE: 50 })
+  })
+
+  it('drops irregular payments exactly as the ungrouped chart does', () => {
+    const withSpecial = [
+      dist('ACME', '2025-04-10', 60),
+      dist('ACME', '2025-04-11', 500, { divType: 'Return of Capital' }),
+    ]
+    expect(dividendsByPeriodGrouped(withSpecial, 'year', 'USD', []).totals).toEqual({ ACME: 60 })
+    expect(
+      dividendsByPeriodGrouped(withSpecial, 'year', 'USD', [], { regularOnly: false }).totals,
+    ).toEqual({ ACME: 560 })
+  })
+
+  it('counts an unconvertible payment as missingFx and attributes it to nobody', () => {
+    const grouped = dividendsByPeriodGrouped(
+      [dist('ACME', '2025-06-20', 50, { currency: 'EUR' }), dist('GLOB', '2025-06-21', 10)],
+      'year',
+      'USD',
+      [],
+    )
+    const bucket = grouped.buckets[0]
+    expect(bucket?.missingFx).toBe(1)
+    // The bar and its segments are understated together rather than disagreeing.
+    expect(bucket?.amount).toBe(10)
+    expect(bucket?.byInstrument).toEqual({ GLOB: 10 })
+    expect(grouped.order).toEqual(['GLOB'])
+  })
+
+  it('groups a payment with no instrument under one stable Unattributed key', () => {
+    const grouped = dividendsByPeriodGrouped(
+      [
+        dist('X', '2025-04-10', 7, { instrumentKey: null, isin: null }),
+        dist('Y', '2025-04-11', 3, { instrumentKey: null, isin: null }),
+      ],
+      'month',
+      'USD',
+      [],
+    )
+    expect(grouped.order).toEqual([UNATTRIBUTED])
+    expect(grouped.totals[UNATTRIBUTED]).toBe(10)
+    expect(instrumentLabel(UNATTRIBUTED, new Map())).toBe(UNATTRIBUTED_LABEL)
+  })
+
+  it('does not split a holding whose rows only sometimes carry the key', () => {
+    // Same rule the payments matrix follows, so the chart and the matrix cannot
+    // disagree about how many holdings paid.
+    const grouped = dividendsByPeriodGrouped(
+      [
+        dist('conid:123', '2024-01-15', 100, { isin: 'IE00B0M62Q58' }),
+        dist('conid:123', '2024-04-15', 120, { isin: 'IE00B0M62Q58', instrumentKey: null }),
+      ],
+      'year',
+      'USD',
+      [],
+    )
+    expect(grouped.order).toEqual(['conid:123'])
+    expect(grouped.totals).toEqual({ 'conid:123': 220 })
+  })
+
+  it('labels a key from the instrument, falling back to the key itself', () => {
+    const symbols = new Map([['conid:123', 'VWRL']])
+    expect(instrumentLabel('conid:123', symbols)).toBe('VWRL')
+    expect(instrumentLabel('LU0000000000', symbols)).toBe('LU0000000000')
+    expect(instrumentLabel('conid:9', new Map([['conid:9', '']]))).toBe('conid:9')
+  })
+
+  it("prints the user's renamed ticker over the one IBKR picked", () => {
+    const instruments = [
+      { key: 'conid:234004667', symbol: 'VDIVd' },
+      { key: 'conid:9', symbol: 'ACME' },
+    ] as unknown as Instrument[]
+    const overrides = [
+      { instrumentKey: 'conid:234004667', displaySymbol: 'TDIV' },
+      // An empty or cleared override must not blank the ticker.
+      { instrumentKey: 'conid:9', displaySymbol: '' },
+    ] as InstrumentOverride[]
+    const symbols = displaySymbols(instruments, overrides)
+    expect(instrumentLabel('conid:234004667', symbols)).toBe('TDIV')
+    expect(instrumentLabel('conid:9', symbols)).toBe('ACME')
+    expect(displaySymbols(instruments).get('conid:234004667')).toBe('VDIVd')
+  })
+
+  it('is empty, not broken, with no payments', () => {
+    expect(dividendsByPeriodGrouped([], 'month', 'USD', [])).toEqual({
+      buckets: [],
+      order: [],
+      totals: {},
+    })
   })
 })
 

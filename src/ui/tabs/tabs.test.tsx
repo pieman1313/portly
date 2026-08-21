@@ -89,8 +89,10 @@ describe('with an imported statement', () => {
     window.location.hash = '#/holdings'
     renderTab(<App />)
     // NEWT and OLDT are one instrument (conid 111111111) bought under two
-    // tickers. It must appear once, with the combined 150 shares.
-    await waitFor(() => expect(screen.getAllByText(/NEWT/).length).toBeGreaterThan(0))
+    // tickers. It must appear once, with the combined 150 shares, displayed
+    // under the Underlying root ticker rather than whichever alias IBKR
+    // happened to list first.
+    await waitFor(() => expect(screen.getAllByText(/OLDT/).length).toBeGreaterThan(0))
     expect(pageText()).toMatch(/ACME/)
     expect(pageText()).toMatch(/GLOB/)
     expectNoPoison()

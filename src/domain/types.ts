@@ -317,6 +317,15 @@ export interface FxRate {
  */
 export interface InstrumentOverride {
   instrumentKey: string
+  /**
+   * Which ticker to show. IBKR reports a renamed instrument under several
+   * aliases and picks one arbitrarily for the Symbol cell — for one real fund
+   * it reports `"VDIVd, TDIV"` and we take the first, while the market, the
+   * price feed and the user all still call it TDIV. Which alias is "the" name
+   * is a judgement we should not make on the user's behalf, so they pick.
+   * Display only: identity, dedupe and provider lookup are unaffected.
+   */
+  displaySymbol?: string | null
   /** e.g. 'LON-JEPI'. Needed because `VDIVd` 404s where its alias `TDIV` resolves. */
   providerSymbol?: string | null
   /**

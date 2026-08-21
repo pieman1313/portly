@@ -231,7 +231,21 @@ export function buildHoldings(
     (acc, t) => (acc === null || t.date > acc ? t.date : acc),
     null,
   )
-  const asOf = opts.asOf ?? latestSnapshotDate ?? latestTradeDate ?? '1970-01-01'
+  // A live quote moves the valuation date forward. Without this the portfolio
+  // is priced with today's quotes but converted at the FX rate of the last
+  // statement — so a refresh updated the prices and left the exchange rate
+  // months stale, and the UI honestly reported "FX as of" a date long past.
+  // The valuation date is the freshest data we have, not the oldest.
+  const latestQuoteDate = quotes.reduce<ISODate | null>((acc, q) => {
+    const d = q.provenance.asOf.slice(0, 10)
+    return acc === null || d > acc ? d : acc
+  }, null)
+  const asOf =
+    opts.asOf ??
+    [latestQuoteDate, latestSnapshotDate, latestTradeDate]
+      .filter((d): d is ISODate => d !== null)
+      .reduce<ISODate | null>((a, d) => (a === null || d > a ? d : a), null) ??
+    '1970-01-01'
 
   const keys = new Set<string>([...txnsByKey.keys(), ...snapByKey.keys()])
   const holdings: Holding[] = []
@@ -318,7 +332,8 @@ export function buildHoldings(
 
     holdings.push({
       instrumentKey: key,
-      symbol: instrument?.symbol ?? key,
+      // Display only. Every lookup elsewhere still goes through instrumentKey.
+      symbol: override?.displaySymbol || instrument?.symbol || key,
       name: instrument?.name ?? instrument?.symbol ?? key,
       assetCategory: instrument?.assetCategory ?? 'Stocks',
       instrument,

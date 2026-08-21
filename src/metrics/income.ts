@@ -1,4 +1,11 @@
-import type { Currency, Distribution, DividendProfile, ISODate } from '../domain/types'
+import type {
+  Currency,
+  Distribution,
+  DividendProfile,
+  Instrument,
+  InstrumentOverride,
+  ISODate,
+} from '../domain/types'
 import {
   addDays,
   addMonths,
@@ -77,6 +84,41 @@ function usable(d: Distribution, opts: IncomeOptions): boolean {
   return true
 }
 
+/**
+ * The payments any cash-flow view is allowed to see: live, bucketable, regular
+ * unless asked otherwise, and inside the window. Shared so the chart, the
+ * stacked chart and the matrix can never disagree about which rows exist.
+ */
+function selectRows(dists: readonly Distribution[], opts: IncomeOptions): Distribution[] {
+  return dists.filter((d) => {
+    if (!usable(d, opts)) return false
+    if (opts.from !== undefined && d.payDate < opts.from) return false
+    if (opts.to !== undefined && d.payDate > opts.to) return false
+    return true
+  })
+}
+
+/**
+ * One instrument, one group.
+ *
+ * IBKR matches some dividend lines to an instrument and leaves others carrying
+ * only the ISIN, and grouping on whichever happened to be filled in splits a
+ * single holding into two half-populated series. `unmatched` is the sentinel
+ * for a payment with neither.
+ */
+function instrumentGrouper(
+  rows: readonly Distribution[],
+  unmatched: string,
+): (d: Distribution) => string {
+  const keyOfIsin = new Map<string, string>()
+  for (const d of rows) {
+    if (d.instrumentKey !== null && d.isin !== null && !keyOfIsin.has(d.isin)) {
+      keyOfIsin.set(d.isin, d.instrumentKey)
+    }
+  }
+  return (d) => d.instrumentKey ?? (d.isin === null ? unmatched : keyOfIsin.get(d.isin) ?? d.isin)
+}
+
 function periodKey(date: ISODate, period: Period): string {
   return period === 'month' ? monthKey(date) : period === 'quarter' ? quarterKey(date) : yearKey(date)
 }
@@ -109,22 +151,23 @@ function emptyBucket(start: ISODate, period: Period): PeriodBucket {
 }
 
 /**
- * Received dividends bucketed by PAY date — the cash-flow view. Buckets are
- * dense: an empty month between two payments is a zero bar, not a gap in the
- * x-axis.
+ * The bucketing, FX and net/gross core. Every dividend cash-flow chart in the
+ * app runs through this one loop; `onPayment` is how a caller layers a
+ * breakdown on top without a second, drifting copy of the arithmetic.
+ *
+ * `onPayment` fires only for payments that converted. The bucket objects it
+ * receives are the very ones returned, so a caller may key a side table off
+ * them — but `amount` is not settled until the loop ends, so read it from the
+ * returned array, never from inside the callback.
  */
-export function dividendsByPeriod(
-  dists: readonly Distribution[],
+function bucketDividends(
+  rows: readonly Distribution[],
   period: Period,
   base: Currency,
   rates: FxSource,
-  opts: IncomeOptions = {},
+  opts: IncomeOptions,
+  onPayment?: (bucket: PeriodBucket, d: Distribution, gross: number, tax: number) => void,
 ): PeriodBucket[] {
-  const rows = dists.filter((d) => usable(d, opts)).filter((d) => {
-    if (opts.from !== undefined && d.payDate < opts.from) return false
-    if (opts.to !== undefined && d.payDate > opts.to) return false
-    return true
-  })
   if (rows.length === 0) return []
 
   const dates = rows.map((d) => d.payDate).sort()
@@ -169,12 +212,136 @@ export function dividendsByPeriod(
     bucket.tax += tax
     bucket.net += gross - tax
     bucket.count += 1
+    onPayment?.(bucket, d, gross, tax)
   }
   for (const key of order) {
     const bucket = buckets.get(key)
     if (bucket) bucket.amount = wantNet ? bucket.net : bucket.gross
   }
   return order.map((k) => buckets.get(k)).filter((b): b is PeriodBucket => b !== undefined)
+}
+
+/**
+ * Received dividends bucketed by PAY date — the cash-flow view. Buckets are
+ * dense: an empty month between two payments is a zero bar, not a gap in the
+ * x-axis.
+ */
+export function dividendsByPeriod(
+  dists: readonly Distribution[],
+  period: Period,
+  base: Currency,
+  rates: FxSource,
+  opts: IncomeOptions = {},
+): PeriodBucket[] {
+  return bucketDividends(selectRows(dists, opts), period, base, rates, opts)
+}
+
+/** Group key for a payment IBKR never matched to an instrument or an ISIN. */
+export const UNATTRIBUTED = '__unknown'
+/** Display label for {@link UNATTRIBUTED}. Not a ticker, so not a symbol. */
+export const UNATTRIBUTED_LABEL = 'Unattributed'
+
+/**
+ * instrumentKey -> ticker to print, with the user's rename applied.
+ *
+ * Same precedence as `buildHoldings`: an override the user set wins, then the
+ * instrument's own most-recent symbol. Display only — identity, dedupe and
+ * every lookup still go through instrumentKey.
+ */
+export function displaySymbols(
+  instruments: readonly Instrument[],
+  overrides: readonly InstrumentOverride[] = [],
+): Map<string, string> {
+  const symbols = new Map<string, string>()
+  for (const i of instruments) symbols.set(i.key, i.symbol)
+  for (const o of overrides) {
+    if (o.displaySymbol !== null && o.displaySymbol !== undefined && o.displaySymbol !== '') {
+      symbols.set(o.instrumentKey, o.displaySymbol)
+    }
+  }
+  return symbols
+}
+
+/**
+ * Ticker for a key produced by {@link dividendsByPeriodGrouped}.
+ *
+ * Lives beside the sentinel it has to recognise rather than being copied into
+ * each screen that stacks these buckets. The raw key is the fallback, because a
+ * payment matched only by an ISIN should still name something the user can look
+ * up rather than read as another "Unattributed".
+ */
+export function instrumentLabel(key: string, symbols: ReadonlyMap<string, string>): string {
+  if (key === UNATTRIBUTED) return UNATTRIBUTED_LABEL
+  const symbol = symbols.get(key)
+  return symbol === undefined || symbol === '' ? key : symbol
+}
+
+export interface GroupedPeriodBucket extends PeriodBucket {
+  /**
+   * instrumentKey -> amount in base, on the SAME net/gross basis as `amount`,
+   * so the parts always sum to the bar. Only contributors present in the
+   * bucket appear; there is no zero-filling.
+   */
+  byInstrument: Record<string, number>
+}
+
+export interface GroupedIncome {
+  buckets: GroupedPeriodBucket[]
+  /**
+   * instrumentKeys ordered by total contribution, descending — the colour
+   * order. It spans the whole window, not one bucket, so a stack segment keeps
+   * its hue as the period toggle reshapes the bars. Ties break on the key so
+   * two holdings that paid the same never swap.
+   */
+  order: string[]
+  /** instrumentKey -> contribution over the whole window, same basis again. */
+  totals: Record<string, number>
+}
+
+/**
+ * `dividendsByPeriod` with the per-holding split kept rather than summed away.
+ *
+ * Identical bucketing, FX, net/gross and `regularOnly` handling — it is the
+ * same loop, called with a collector. A payment that could not be converted
+ * counts towards `missingFx` and contributes to no holding, exactly as before:
+ * the bar and its segments are understated together rather than the segments
+ * disagreeing with the total.
+ */
+export function dividendsByPeriodGrouped(
+  dists: readonly Distribution[],
+  period: Period,
+  base: Currency,
+  rates: FxSource,
+  opts: IncomeOptions = {},
+): GroupedIncome {
+  const rows = selectRows(dists, opts)
+  const groupOf = instrumentGrouper(rows, UNATTRIBUTED)
+  const wantNet = opts.net ?? false
+
+  const totals = new Map<string, number>()
+  const splits = new Map<PeriodBucket, Record<string, number>>()
+
+  const buckets = bucketDividends(rows, period, base, rates, opts, (bucket, d, gross, tax) => {
+    const value = wantNet ? gross - tax : gross
+    const key = groupOf(d)
+    let split = splits.get(bucket)
+    if (split === undefined) {
+      split = {}
+      splits.set(bucket, split)
+    }
+    split[key] = (split[key] ?? 0) + value
+    totals.set(key, (totals.get(key) ?? 0) + value)
+  })
+
+  const order = [...totals.keys()].sort(
+    (a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0) || a.localeCompare(b),
+  )
+
+  return {
+    buckets: buckets.map((b) => ({ ...b, byInstrument: splits.get(b) ?? {} })),
+    order,
+    totals: Object.fromEntries(totals),
+  }
 }
 
 export interface MatrixRow {
@@ -209,11 +376,7 @@ export function paymentsMatrix(
   rates: FxSource,
   opts: MatrixOptions = {},
 ): PaymentsMatrix {
-  const rows = dists.filter((d) => usable(d, opts)).filter((d) => {
-    if (opts.from !== undefined && d.payDate < opts.from) return false
-    if (opts.to !== undefined && d.payDate > opts.to) return false
-    return true
-  })
+  const rows = selectRows(dists, opts)
   const dates = rows.map((d) => d.payDate).sort()
   const from = isValidISODate(opts.from) ? opts.from : undefined
   const to = isValidISODate(opts.to) ? opts.to : undefined
@@ -233,18 +396,10 @@ export function paymentsMatrix(
   }
   const columnOf = new Map(months.map((m, i) => [m, i]))
 
-  // One instrument, one row. IBKR matches some dividend lines to an
-  // instrument and leaves others carrying only the ISIN, and grouping on
-  // whichever happened to be filled in splits a single holding into two
-  // half-populated rows.
-  const keyOfIsin = new Map<string, string>()
-  for (const d of rows) {
-    if (d.instrumentKey !== null && d.isin !== null && !keyOfIsin.has(d.isin)) {
-      keyOfIsin.set(d.isin, d.instrumentKey)
-    }
-  }
-  const groupKey = (d: Distribution): string =>
-    d.instrumentKey ?? (d.isin === null ? '(unmatched)' : keyOfIsin.get(d.isin) ?? d.isin)
+  // One instrument, one row. The matrix keeps its own '(unmatched)' sentinel
+  // because that string is the row's printed label; the charts use
+  // UNATTRIBUTED and label it themselves.
+  const groupKey = instrumentGrouper(rows, '(unmatched)')
 
   const index = asIndex(rates)
   const wantNet = opts.net ?? false

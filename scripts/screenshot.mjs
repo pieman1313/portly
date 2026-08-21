@@ -114,6 +114,15 @@ await cdp.send('Page.enable')
 await cdp.send('Runtime.enable')
 await cdp.send('DOM.enable')
 await cdp.send('Log.enable')
+await cdp.send('Network.enable')
+const failures = []
+cdp.ws.addEventListener('message', (e) => {
+  const m = JSON.parse(e.data)
+  if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) {
+    failures.push(`${m.params.response.status} ${m.params.response.url.slice(0, 110)}`)
+  }
+})
+globalThis.__failures = failures
 
 const consoleErrors = []
 cdp.ws.addEventListener('message', (e) => {
@@ -207,6 +216,13 @@ for (const v of VIEWPORTS) {
       `document.body.innerText.match(/imported|duplicate|already/i)?.[0] ?? 'no import feedback'`,
     )
     console.log(`import: ${imported}`)
+    // Wait for the automatic refresh kicked off by the import to settle.
+    for (let i = 0; i < 40; i++) {
+      const busy = await evaluate(`document.body.innerText.includes('Updating prices')`)
+      if (!busy && i > 2) break
+      await sleep(1000)
+    }
+    console.log('post-import sync settled')
   }
 
   for (const tab of TABS) {
@@ -240,6 +256,11 @@ for (const r of results) {
   for (const c of r.culprits) console.log(`             overflowing: ${c}`)
 }
 
+const fails = globalThis.__failures ?? []
+if (fails.length) {
+  console.log('\nHTTP failures (a provider miss is expected; a missing asset is not):')
+  for (const f of [...new Set(fails)]) console.log('  ' + f)
+}
 if (consoleErrors.length) {
   console.log('\nconsole errors:')
   for (const e of [...new Set(consoleErrors)].slice(0, 10)) console.log('  ' + e.slice(0, 220))

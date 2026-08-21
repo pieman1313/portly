@@ -11,10 +11,11 @@ import {
   formatMoney,
   formatPct,
 } from '../components/primitives'
-import { Columns, Donut, seriesColor } from '../components/charts'
+import { Columns, Donut, foldStack, seriesColor } from '../components/charts'
 import { usePortfolio } from '../usePortfolio'
 import { sum, sumBy } from '../../metrics/money'
 import { isExternalFlow } from '../../metrics/returns'
+import { instrumentLabel } from '../../metrics/income'
 import type { Holding } from '../../metrics/holdings'
 import type { Currency } from '../../domain/types'
 
@@ -59,6 +60,14 @@ const GROUP_NOUN: Record<Grouping, string> = {
  */
 const MAX_SLICES = 8
 
+/**
+ * Lower than the Income tab's eight. This is a 220px summary card, the legend
+ * sits under the bars rather than beside them, and at 360px a six-entry legend
+ * already takes two lines. Anything past the fifth holding folds into "Other" —
+ * the tab that answers "which holding" properly is Income.
+ */
+const MAX_DIVIDEND_TICKERS = 5
+
 export function Overview() {
   const view = usePortfolio()
   // Currency, not holding: the fixed donut above already answers "by holding",
@@ -70,7 +79,11 @@ export function Overview() {
 
   const byHolding = useMemo(() => allocate(portfolio.holdings, 'holding'), [portfolio.holdings])
   const grouped = useMemo(() => allocate(portfolio.holdings, grouping), [portfolio.holdings, grouping])
-  const monthly = useMemo(() => view.incomeBy('month'), [view])
+  // Grouped, so the bars can be split by holding. The buckets are the same ones
+  // `incomeBy` returns, with the per-holding split kept, so every figure below
+  // still agrees with the Income tab.
+  const income = useMemo(() => view.incomeByGrouped('month'), [view])
+  const monthly = income.buckets
 
   const open = portfolio.holdings.filter((h) => !h.excluded && !h.closed)
   const valued = open.filter((h) => h.marketValueBase !== null)
@@ -93,8 +106,32 @@ export function Overview() {
   const forwardYield = forwardKnown ? yields.forwardYieldExCashPct : null
   const yieldOnCost = forwardKnown ? yields.yieldOnCostPct : null
 
-  const last12 = monthly.slice(-12)
-  const chartData = last12.map((b) => ({ month: shortMonth(b.key), amount: b.amount }))
+  const last12 = useMemo(() => monthly.slice(-12), [monthly])
+  // Ranked off the same whole-window `income.order` the Income tab colours
+  // from, so one holding is one hue across both screens and the twelve bars do
+  // not repaint every time a month rolls out of the window. `foldStack` drops
+  // any key that paid nothing inside these twelve months, so an old holding
+  // still gets neither a hue nor a legend row with no bar under it.
+  const stack = useMemo(
+    () =>
+      foldStack(
+        last12.map((b) => b.byInstrument),
+        (key) => instrumentLabel(key, view.symbols),
+        { max: MAX_DIVIDEND_TICKERS, order: income.order },
+      ),
+    [last12, income.order, view.symbols],
+  )
+  // Nothing attributable — every payment in the window failed FX conversion.
+  // The bars are all zero either way; keep one honest series over an axis with
+  // no marks at all.
+  const attributed = stack.series.length > 0
+  const chartData = last12.map((b, i) => ({
+    month: shortMonth(b.key),
+    ...(attributed ? stack.rows[i] ?? {} : { amount: b.amount }),
+  }))
+  const chartSeries = attributed
+    ? stack.series
+    : [{ key: 'amount', name: 'Dividends received', color: seriesColor('dividends', ['dividends']) }]
   const firstBucket = last12[0]
   const lastBucket = last12[last12.length - 1]
 
@@ -256,22 +293,21 @@ export function Overview() {
         ) : (
           <>
             <p className="sr-only">
-              Monthly bar chart of dividends received, one bar per month. Per-payment detail is on
-              the Income tab.
+              Monthly bar chart of dividends received, one bar per month
+              {chartSeries.length > 1
+                ? `, each split by holding: ${chartSeries.map((s) => s.name).join(', ')}`
+                : ''}
+              . Per-payment detail is on the Income tab.
             </p>
             <Columns
               data={chartData}
               xKey="month"
-              stacked={false}
+              stacked={chartSeries.length > 1}
               height={220}
               format={(v) => formatMoney(v, base, { dp: 0, compact: true })}
-              series={[
-                {
-                  key: 'amount',
-                  name: 'Dividends received',
-                  color: seriesColor('dividends', ['dividends']),
-                },
-              ]}
+              // The axis is whole units; a segment worth 0.30 is not.
+              tooltipFormat={(v) => formatMoney(v, base, { dp: 2 })}
+              series={chartSeries}
             />
           </>
         )}
@@ -381,6 +417,11 @@ function Allocation({
           data={sorted}
           maxSlices={MAX_SLICES}
           format={(v) => formatMoney(v, currency, { dp: 0 })}
+          // The list beside this chart already names every slice and gives its
+          // value and weight, so identity is not carried by colour alone. A
+          // built-in legend next to it is the same information twice, and on a
+          // narrow screen it squeezes the chart for nothing.
+          legend={false}
         />
       </div>
       <ul className="text-sm divide-y divide-border min-w-0" aria-label={`${label}, largest first`}>

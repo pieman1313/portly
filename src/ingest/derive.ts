@@ -602,10 +602,25 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
     if (aliases.length === 0) continue
     const assetCategory = col(br.b, COL.assetCategory).trim()
     const underlying = col(br.b, COL.underlying).trim()
-    // The Underlying column holds the OLD ticker for a renamed stock, but the
-    // actual underlying for a derivative — only fold it in for cash equities.
-    if (underlying && !aliases.includes(underlying) && !DERIVATIVE.test(assetCategory)) {
-      aliases.push(underlying)
+    // For a derivative this column is the actual underlying instrument, which is
+    // a different security — never fold that in. For a cash equity it is the
+    // instrument's own root ticker, and it goes FIRST, because aliases[0]
+    // becomes the displayed symbol.
+    //
+    // Two reasons to prefer it over the Symbol cell's own ordering. It is
+    // deterministic: the Symbol cell is a comma-separated alias list whose order
+    // is IBKR's business and can differ between exports, so keying display off
+    // it makes a holding rename itself for no reason. And it is the broker's own
+    // canonical pointer — for the renamed fund in a real statement the Symbol
+    // cell reads "VDIVd, TDIV" while Underlying says TDIV, which is also what
+    // the market, the price feed and the account holder call it.
+    //
+    // Either way the user can pick a different alias on the Holdings tab; this
+    // only decides the default.
+    if (underlying && !DERIVATIVE.test(assetCategory)) {
+      const rest = aliases.filter((a) => a !== underlying)
+      aliases.length = 0
+      aliases.push(underlying, ...rest)
     }
     // No touch() here: firstSeen/lastSeen mean "seen in an event or a position",
     // and every instrument appears in this section whether it traded or not.

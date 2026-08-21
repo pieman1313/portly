@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { useMarketDataSync } from './ui/useMarketDataSync'
 
 /*
  * Tabs are split per route. On a phone this matters: the Data tab alone pulls in
@@ -58,6 +59,9 @@ function useHashRoute(): [TabId, (t: TabId) => void] {
 
 export function App() {
   const [tab, go] = useHashRoute()
+  // Mounted once, here, so prices refresh on open and after every import
+  // regardless of which tab the user happens to be looking at.
+  const sync = useMarketDataSync()
 
   useEffect(() => {
     const active = TABS.find((t) => t.id === tab)
@@ -110,15 +114,17 @@ export function App() {
               </button>
             ))}
           </nav>
+          <SyncStatus sync={sync} className="ml-auto" />
         </div>
       </header>
 
       {/* Mobile title bar */}
       <header className="sm:hidden sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
-        <div className="h-12 px-4 flex items-center">
+        <div className="h-12 px-4 flex items-center gap-3">
           <span className="font-semibold tracking-tight">
             {TABS.find((t) => t.id === tab)?.label ?? 'Portly'}
           </span>
+          <SyncStatus sync={sync} className="ml-auto" />
         </div>
       </header>
 
@@ -161,6 +167,38 @@ export function App() {
         </ul>
       </nav>
     </div>
+  )
+}
+
+/**
+ * Refresh status. Silent when nothing is happening — a permanent green tick is
+ * noise. Only speaks up while working, or when a provider failed and some
+ * number on screen is therefore older than it looks.
+ */
+function SyncStatus({
+  sync,
+  className = '',
+}: {
+  sync: ReturnType<typeof useMarketDataSync>
+  className?: string
+}) {
+  if (sync.running) {
+    return (
+      <span className={`text-[11px] text-muted ${className}`} role="status">
+        <span aria-hidden>&#183;&#183;&#183;</span> Updating prices
+      </span>
+    )
+  }
+  const failed = sync.error !== null || sync.quotesFailed > 0
+  if (!failed) return null
+  return (
+    <a
+      href="#/data"
+      className={`text-[11px] text-warn hover:underline ${className}`}
+      title={sync.error ?? `${sync.quotesFailed} price lookup(s) failed`}
+    >
+      ! Prices out of date
+    </a>
   )
 }
 

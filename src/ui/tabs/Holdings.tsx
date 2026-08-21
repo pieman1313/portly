@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { usePortfolio } from '../usePortfolio'
+import { db } from '../../db/schema'
 import type { Holding } from '../../metrics/holdings'
 import { pct, sumDefined } from '../../metrics/money'
 import type { Currency, ISODate, Provenance, Quote } from '../../domain/types'
@@ -175,6 +176,17 @@ export function Holdings() {
     const gone = rows.filter((r) => r.h.closed && !r.h.excluded && matches(r, query.trim().toLowerCase()))
     return { count: gone.length, realized: sumDefined(gone.map((r) => r.h.realizedPnlBase)) }
   }, [rows, showClosed, query])
+
+  // Declared before the early returns below: a hook after a conditional
+  // return changes the hook count between the loading and loaded renders,
+  // which React rejects outright.
+  // Display-only preference, persisted per instrument. Writing to Dexie is
+  // enough: `usePortfolio` reads overrides through a live query, so the whole
+  // app re-renders under the chosen ticker without any local state here.
+  const setDisplaySymbol = useCallback(async (instrumentKey: string, symbol: string) => {
+    const existing = await db.overrides.get(instrumentKey)
+    await db.overrides.put({ ...(existing ?? { instrumentKey }), displaySymbol: symbol })
+  }, [])
 
   if (view.loading) {
     return (
@@ -389,6 +401,7 @@ export function Holdings() {
         ) : (
           <>
             <HoldingCards
+              onDisplaySymbol={setDisplaySymbol}
               rows={visible}
               base={base}
               expanded={expanded}
@@ -396,6 +409,7 @@ export function Holdings() {
               totals={totals}
             />
             <HoldingsTable
+              onDisplaySymbol={setDisplaySymbol}
               rows={visible}
               base={base}
               expanded={expanded}
@@ -438,6 +452,7 @@ interface ListProps {
   base: Currency
   expanded: ReadonlySet<string>
   onToggle: (key: string) => void
+  onDisplaySymbol: (instrumentKey: string, symbol: string) => void
   totals: Totals
 }
 
@@ -446,7 +461,7 @@ const AT_MD = 'hidden md:table-cell'
 const AT_LG = 'hidden lg:table-cell'
 const NUM = 'px-2 py-2 text-right align-middle whitespace-nowrap'
 
-function HoldingsTable({ rows, base, expanded, onToggle, totals }: ListProps) {
+function HoldingsTable({ rows, base, expanded, onToggle, onDisplaySymbol, totals }: ListProps) {
   return (
     // Below `sm` the cards take over, so this never scrolls on a phone. The
     // guard is for the narrow window between `lg` (all eleven columns) and the
@@ -502,6 +517,7 @@ function HoldingsTable({ rows, base, expanded, onToggle, totals }: ListProps) {
             const detailId = `holding-detail-table-${r.h.instrumentKey}`
             return (
               <TableRow
+                onDisplaySymbol={onDisplaySymbol}
                 key={r.h.instrumentKey}
                 row={r}
                 base={base}
@@ -553,12 +569,14 @@ function TableRow({
   open,
   detailId,
   onToggle,
+  onDisplaySymbol,
 }: {
   row: Row
   base: Currency
   open: boolean
   detailId: string
   onToggle: (key: string) => void
+  onDisplaySymbol: (instrumentKey: string, symbol: string) => void
 }) {
   const { h } = row
   return (
@@ -619,7 +637,7 @@ function TableRow({
       {open && (
         <tr id={detailId} className="border-b border-border/60 bg-bg/60">
           <td colSpan={11} className="px-2 py-3">
-            <HoldingDetail row={row} base={base} />
+            <HoldingDetail row={row} base={base} onDisplaySymbol={onDisplaySymbol} />
           </td>
         </tr>
       )}
@@ -631,12 +649,13 @@ function TableRow({
 // Cards (below sm)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function HoldingCards({ rows, base, expanded, onToggle, totals }: ListProps) {
+function HoldingCards({ rows, base, expanded, onToggle, onDisplaySymbol, totals }: ListProps) {
   return (
     <div className="sm:hidden">
       <ul className="space-y-2">
         {rows.map((r) => (
           <HoldingCard
+            onDisplaySymbol={onDisplaySymbol}
             key={r.h.instrumentKey}
             row={r}
             base={base}
@@ -674,11 +693,13 @@ function HoldingCard({
   base,
   open,
   onToggle,
+  onDisplaySymbol,
 }: {
   row: Row
   base: Currency
   open: boolean
   onToggle: (key: string) => void
+  onDisplaySymbol: (instrumentKey: string, symbol: string) => void
 }) {
   const { h } = row
   const detailId = `holding-detail-card-${h.instrumentKey}`
@@ -747,7 +768,7 @@ function HoldingCard({
         </dl>
         {open && (
           <div id={detailId} className="mt-3 pt-3 border-t border-border">
-            <HoldingDetail row={row} base={base} />
+            <HoldingDetail row={row} base={base} onDisplaySymbol={onDisplaySymbol} />
           </div>
         )}
       </div>
@@ -777,7 +798,15 @@ function RowBadges({ row }: { row: Row }) {
   )
 }
 
-function HoldingDetail({ row, base }: { row: Row; base: Currency }) {
+function HoldingDetail({
+  row,
+  base,
+  onDisplaySymbol,
+}: {
+  row: Row
+  base: Currency
+  onDisplaySymbol: (instrumentKey: string, symbol: string) => void
+}) {
   const { h } = row
   const inst = h.instrument
   const priceCcy = h.priceCurrency ?? h.currency
@@ -860,17 +889,43 @@ function HoldingDetail({ row, base }: { row: Row; base: Currency }) {
       </dl>
 
       {/* Aliases are the whole story behind a renamed ticker: one instrument,
-          two symbols across statements, one conid. Show every one. */}
+          two symbols across statements, one conid. Show every one — and let the
+          user choose which is displayed, because which alias is "the" name is a
+          judgement about their market, not a fact we can derive. IBKR puts them
+          in an arbitrary order and we take the first. */}
       <div className="text-xs">
-        <span className="text-muted">Known tickers: </span>
-        {(inst?.aliases ?? [h.symbol]).map((a) => (
-          <span
-            key={a}
-            className="inline-block num border border-border rounded px-1.5 py-0.5 mr-1 mb-1"
-          >
-            {a}
-          </span>
-        ))}
+        <span className="text-muted">
+          {(inst?.aliases.length ?? 0) > 1 ? 'Show as: ' : 'Known tickers: '}
+        </span>
+        {(inst?.aliases ?? [h.symbol]).map((a) => {
+          const active = a === h.symbol
+          const only = (inst?.aliases.length ?? 0) <= 1
+          if (only) {
+            return (
+              <span
+                key={a}
+                className="inline-block num border border-border rounded px-1.5 py-0.5 mr-1 mb-1"
+              >
+                {a}
+              </span>
+            )
+          }
+          return (
+            <button
+              key={a}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onDisplaySymbol(h.instrumentKey, a)}
+              className={`inline-block num border rounded px-2 min-h-[32px] mr-1 mb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                active
+                  ? 'border-accent text-accent bg-accent/10'
+                  : 'border-border text-muted hover:text-ink'
+              }`}
+            >
+              {a}
+            </button>
+          )
+        })}
         {row.otherAliases.length > 0 && (
           <p className="text-muted mt-1 leading-relaxed">
             Same instrument under more than one ticker — the broker renamed it. Statements from

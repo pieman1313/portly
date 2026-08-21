@@ -141,6 +141,18 @@ describe('instrument identity', () => {
     expect(eur.map((t) => t.instrumentKey)).toEqual(['111111111', '111111111'])
   })
 
+  it('defaults the displayed ticker to the undecorated root, not the alias order', () => {
+    // The Symbol cell reads "NEWT, OLDT" and Underlying says OLDT. Underlying
+    // wins: the Symbol cell's ordering is IBKR's business and can differ
+    // between exports, so keying display off it makes a holding rename itself
+    // for no reason. In a real statement this is the difference between the
+    // venue-suffixed "VDIVd" and "TDIV", the ticker the market actually uses —
+    // and the one the price feed resolves.
+    const renamed = basic().instruments.find((i) => i.key === '111111111')
+    expect(renamed?.symbol).toBe('OLDT')
+    expect(renamed?.aliases).toContain('NEWT')
+  })
+
   it('records the trade currency and the (different) dividend currency', () => {
     const { instruments } = basic()
     const acme = instruments.find((i) => i.symbol === 'ACME')
@@ -492,7 +504,7 @@ describe('reconciliation', () => {
       'Trades proceeds ACME (Stocks/USD)',
       'Trades commission ACME (Stocks/USD)',
       'Trades realized P/L ACME (Stocks/USD)',
-      'Trades quantity NEWT (Stocks/EUR)',
+      'Trades quantity OLDT (Stocks/EUR)',
     ]) {
       expect(byLabel(b, label), label).toBeDefined()
     }

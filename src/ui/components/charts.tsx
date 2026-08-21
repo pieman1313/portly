@@ -47,6 +47,15 @@ export const SERIES = [
 /** Sequential ramp, one hue light->dark, for the holdings x month heatmap. */
 export const SEQUENTIAL = ['#0d2b4d', '#14406f', '#1a5594', '#2a78d6', '#6aa9ec'] as const
 
+/**
+ * The fold. Everything past the eighth entity shares this one neutral, which is
+ * deliberately NOT a ninth hue: it must read as "the rest", not as another
+ * named series.
+ */
+export const OTHER_COLOR = '#4a5568'
+/** Reserved data key for the folded remainder. No instrument can collide. */
+export const OTHER_KEY = '__other'
+
 const SURFACE = '#131926'
 const GRID = '#222c3d'
 const AXIS_TEXT = '#8b9ab3'
@@ -69,29 +78,46 @@ function ChartTooltip({
   payload,
   label,
   formatter,
+  total = false,
 }: {
   active?: boolean
   payload?: { name?: string; value?: number; color?: string; dataKey?: string }[]
   label?: string
   formatter: (v: number) => string
+  /**
+   * Add a total row under the entries. Only ever true for a STACKED chart,
+   * where the entries are parts of one whole and their sum is the mark the
+   * user is pointing at. Summing the lines of a multi-measure line chart
+   * would print a number that does not exist.
+   */
+  total?: boolean
 }) {
   if (!active || !payload?.length) return null
+  const rows = payload.filter((p) => p.value != null && p.value !== 0)
   return (
     <div className="bg-bg border border-border rounded-lg px-3 py-2 text-xs shadow-xl">
       {label && <div className="text-muted mb-1">{label}</div>}
-      {payload
-        .filter((p) => p.value != null && p.value !== 0)
-        .map((p) => (
-          <div key={p.dataKey ?? p.name} className="flex items-center gap-2 py-0.5">
-            <span
-              aria-hidden
-              className="w-2.5 h-2.5 rounded-sm shrink-0"
-              style={{ background: p.color }}
-            />
-            <span className="text-muted">{p.name}</span>
-            <span className="num ml-auto font-medium">{formatter(p.value ?? 0)}</span>
-          </div>
-        ))}
+      {rows.map((p) => (
+        <div key={p.dataKey ?? p.name} className="flex items-center gap-2 py-0.5">
+          <span
+            aria-hidden
+            className="w-2.5 h-2.5 rounded-sm shrink-0"
+            style={{ background: p.color }}
+          />
+          <span className="text-muted">{p.name}</span>
+          <span className="num ml-auto font-medium">{formatter(p.value ?? 0)}</span>
+        </div>
+      ))}
+      {total && rows.length > 1 && (
+        <div className="flex items-center gap-2 pt-1 mt-1 border-t border-border">
+          {/* No swatch: the total is not a mark on the chart. */}
+          <span aria-hidden className="w-2.5 shrink-0" />
+          <span className="text-muted">Total</span>
+          <span className="num ml-auto font-medium">
+            {formatter(rows.reduce((t, p) => t + (p.value ?? 0), 0))}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -118,6 +144,90 @@ export interface StackSeries {
   color: string
 }
 
+export interface FoldedStack {
+  /** At most `max` coloured series, plus a grey "Other" when anything folded. */
+  series: StackSeries[]
+  /**
+   * One row per input breakdown, in the same order, keyed by `series[].key`.
+   * Spread into the caller's own x-value row.
+   */
+  rows: Record<string, number>[]
+  /** Entity keys that got their own colour, in colour order. */
+  shown: string[]
+  /** Entity keys that folded into "Other". */
+  folded: string[]
+}
+
+/**
+ * Turn a per-entity breakdown per bucket into stacked-bar series.
+ *
+ * Three kit rules live here so no caller has to remember them:
+ *
+ *   - Colour is taken from `order` — the entity's rank across the WHOLE chart,
+ *     never its rank inside one bucket. A ticker keeps its hue when a period
+ *     toggle reshapes the buckets or a neighbour drops to zero.
+ *   - The ninth entity and everything after it folds into one grey "Other". We
+ *     do not invent a hue, and at 360px a ten-item legend is unreadable anyway.
+ *   - Series data keys are positional (`s0`, `s1`, ...), not the entity key.
+ *     Recharts resolves a string dataKey as a property PATH, so an instrument
+ *     keyed `BRK.B|NASDAQ` would silently plot nothing.
+ */
+export function foldStack(
+  breakdowns: readonly Readonly<Record<string, number>>[],
+  label: (key: string) => string,
+  { max = 8, order }: { max?: number; order?: readonly string[] } = {},
+): FoldedStack {
+  const totals = new Map<string, number>()
+  for (const b of breakdowns) {
+    for (const [key, value] of Object.entries(b)) {
+      totals.set(key, (totals.get(key) ?? 0) + value)
+    }
+  }
+  // Ties broken on the key itself: two holdings that paid the same amount must
+  // not swap hues between renders.
+  const byContribution = [...totals.keys()].sort(
+    (a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0) || a.localeCompare(b),
+  )
+  // A caller-supplied order wins, but anything it does not mention is still
+  // drawn rather than silently dropped from the bars.
+  const ranked =
+    order === undefined
+      ? byContribution
+      : [
+          ...order.filter((k) => totals.has(k)),
+          ...byContribution.filter((k) => !order.includes(k)),
+        ]
+
+  // Clamped to the palette: `seriesColor` wraps, so a caller asking for ten
+  // slots would hand the ninth entity the first entity's blue — the one thing
+  // the fold exists to prevent.
+  const cap = Math.min(Math.max(0, max), SERIES.length)
+  const shown = ranked.slice(0, cap)
+  const folded = ranked.slice(cap)
+
+  const series: StackSeries[] = shown.map((key, i) => ({
+    key: `s${i}`,
+    name: label(key),
+    color: seriesColor(key, shown),
+  }))
+  if (folded.length > 0) {
+    series.push({ key: OTHER_KEY, name: `Other (${folded.length})`, color: OTHER_COLOR })
+  }
+
+  const rows = breakdowns.map((b) => {
+    const row: Record<string, number> = {}
+    shown.forEach((key, i) => {
+      row[`s${i}`] = b[key] ?? 0
+    })
+    if (folded.length > 0) {
+      row[OTHER_KEY] = folded.reduce((t, key) => t + (b[key] ?? 0), 0)
+    }
+    return row
+  })
+
+  return { series, rows, shown, folded }
+}
+
 /**
  * Column chart, optionally stacked. Bars are capped at 24px so the band's
  * leftover reads as air, ends are rounded 4px away from the baseline, and
@@ -130,6 +240,7 @@ export function Columns({
   series,
   height = 240,
   format,
+  tooltipFormat,
   stacked = true,
 }: {
   data: Record<string, unknown>[]
@@ -137,6 +248,13 @@ export function Columns({
   series: StackSeries[]
   height?: number
   format: (v: number) => string
+  /**
+   * Formatter for the tooltip, when the axis one is too coarse for it. An axis
+   * rounds and compacts to fit its ticks; a stacked segment worth 0.42 read
+   * through that formatter prints as "0" next to a total that includes it, and
+   * the parts visibly stop adding up. Defaults to `format`.
+   */
+  tooltipFormat?: (v: number) => string
   stacked?: boolean
 }) {
   const single = series.length === 1
@@ -148,7 +266,11 @@ export function Columns({
         <YAxis {...axisProps} width={56} tickFormatter={(v) => format(Number(v))} />
         <Tooltip
           cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-          content={<ChartTooltip formatter={format} />}
+          // A stacked bar's parts sum to the bar, so the total is a real
+          // number the user is pointing at rather than a coincidence.
+          content={
+            <ChartTooltip formatter={tooltipFormat ?? format} total={stacked && !single} />
+          }
         />
         {!single && <Legend wrapperStyle={{ fontSize: 11, color: AXIS_TEXT }} iconType="square" iconSize={9} />}
         {series.map((s, i) => (
@@ -244,7 +366,7 @@ export function Donut({
   const head = sorted.slice(0, maxSlices)
   const tail = sorted.slice(maxSlices)
   const slices = tail.length
-    ? [...head, { key: '__other', name: `Other (${tail.length})`, value: tail.reduce((s, d) => s + d.value, 0) }]
+    ? [...head, { key: OTHER_KEY, name: `Other (${tail.length})`, value: tail.reduce((s, d) => s + d.value, 0) }]
     : head
 
   return (
@@ -262,7 +384,7 @@ export function Donut({
           isAnimationActive={false}
         >
           {slices.map((s, i) => (
-            <Cell key={s.key} fill={s.key === '__other' ? '#4a5568' : (SERIES[i % SERIES.length] ?? SERIES[0])} />
+            <Cell key={s.key} fill={s.key === OTHER_KEY ? OTHER_COLOR : (SERIES[i % SERIES.length] ?? SERIES[0])} />
           ))}
         </Pie>
         <Tooltip content={<ChartTooltip formatter={format} />} />
