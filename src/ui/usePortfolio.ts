@@ -61,7 +61,14 @@ export interface PortfolioView {
   matrix: ReturnType<typeof paymentsMatrix>
 
   totalDividendsBase: number
-  totalPnlBase: number
+  /**
+   * Null when the cost-basis and market-value totals cover different sets of
+   * holdings — which is the normal offline state for a multi-currency
+   * portfolio, because value needs one FX rate and cost needs one per trade
+   * date. Showing the difference anyway prints one sleeve's profit beside the
+   * whole portfolio's value.
+   */
+  totalPnlBase: number | null
   totalPnlPct: number | null
   /** Net external contributions. Understated if `investedMissingFx` is non-zero. */
   investedBase: number
@@ -145,10 +152,17 @@ export function usePortfolio(): PortfolioView {
     const investedBase = flows.flows.reduce((t, f) => t + f.amount, 0)
 
     const marketValue = portfolio.marketValueBase
-    const totalPnlBase =
-      portfolio.unrealizedPnlBase + portfolio.realizedPnlBase + totalDividendsBase
+    // Both figures are suppressed together: the absolute profit is as partial
+    // as the percentage, so showing one and hiding the other would just move
+    // the misleading number rather than remove it.
+    const pnlComparable = portfolio.aggregatesComparable && dividendsMissingFx === 0
+    const totalPnlBase = pnlComparable
+      ? portfolio.unrealizedPnlBase + portfolio.realizedPnlBase + totalDividendsBase
+      : null
     const totalPnlPct =
-      portfolio.costBasisBase > 0 ? (totalPnlBase / portfolio.costBasisBase) * 100 : null
+      totalPnlBase !== null && portfolio.costBasisBase > 0
+        ? (totalPnlBase / portfolio.costBasisBase) * 100
+        : null
 
     // Suppress the return entirely if any external flow could not be converted:
     // a partial flow vector produces a confidently wrong number.

@@ -20,6 +20,7 @@ import type {
   CashKind,
   Currency,
   Distribution,
+  FxRate,
   IdentitySource,
   Instrument,
   ISODate,
@@ -46,6 +47,13 @@ import { bindRow } from './statement'
 
 export interface DerivedBundle {
   instruments: Instrument[]
+  /**
+   * Exchange rates recovered from the statement itself, dated at the period end.
+   * These are what make the app genuinely usable offline: without them a
+   * multi-currency portfolio silently drops every non-base holding from its own
+   * total. See `translationRate` below.
+   */
+  fxRates: FxRate[]
   transactions: Transaction[]
   distributions: Distribution[]
   accruals: Accrual[]
@@ -98,6 +106,41 @@ export function toDateTime(v: string | null | undefined): ISODateTime | null {
 function round6(n: number): number {
   const r = Math.round(n * 1e6) / 1e6
   return r === 0 ? 0 : r
+}
+
+/**
+ * Given a currency block's totals and the row that follows it, decide whether
+ * that row is the same block restated in base currency, and if so return the
+ * rate (base units per unit of the block's currency).
+ *
+ * Both columns must scale by the same factor. That is what separates a genuine
+ * translation from the unrelated subtotal that often sits next to it: in a real
+ * statement the translation pair agrees to six decimals (1.173800 / 1.173800)
+ * while its neighbours disagree in the second (1.0627 / 1.1103).
+ */
+function translationRate(
+  block: { cost: number | null; value: number | null },
+  restated: { cost: number | null; value: number | null },
+): number | null {
+  const ratios: number[] = []
+  for (const [a, b] of [
+    [block.cost, restated.cost],
+    [block.value, restated.value],
+  ] as const) {
+    if (a === null || b === null) continue
+    if (Math.abs(a) < 1e-6) continue
+    ratios.push(b / a)
+  }
+  // One agreeing column is not evidence; a single subtotal ratio is meaningless.
+  if (ratios.length < 2) return null
+  const [x, y] = ratios as [number, number]
+  if (!(x > 0) || !(y > 0)) return null
+  if (Math.abs(x - y) / x > 0.005) return null
+  const rate = (x + y) / 2
+  // Sanity band. A real FX rate against any tradeable currency lives well
+  // inside this; anything outside is a coincidence we should not trust.
+  if (rate < 1e-4 || rate > 1e4) return null
+  return rate
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -580,6 +623,7 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
 
   const positions: PositionSnapshot[] = []
   const reconciliation: ReconciliationCheck[] = []
+  const fxRates: FxRate[] = []
 
   // ── Open Positions ─────────────────────────────────────────────────────────
   // Walked in file order so the block totals can be reconciled inline: a bare
@@ -593,6 +637,9 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
     let stockValue = 0
     let stockRows = 0
     let allBase = true
+    // The Total row most recently closed, kept so the row after it can be
+    // tested for being that same block restated in base currency.
+    let lastBlock: { ccy: string; cost: number | null; value: number | null } | null = null
 
     for (const br of bySection.get('Open Positions') ?? []) {
       if (br.row.rowType === 'Header') continue
@@ -604,9 +651,38 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
         // describe reports a bug we do not have. Order is not reliable; the
         // Currency column is.
         const totalCcy = col(br.b, COL.currency).trim()
+        const totValue = num(col(br.b, COL.value))
+        const totCost = num(col(br.b, COL.costBasis))
+
+        // IBKR follows a non-base currency block's Total with the SAME figures
+        // restated in base currency. Nothing in the row says so — the research
+        // notes flag this as a triple-counting trap — but it is also the only
+        // place the statement states its own exchange rate, so it is worth
+        // recovering rather than merely skipping.
+        //
+        // The tell is that BOTH columns scale by the same factor. An unrelated
+        // subtotal that happens to sit next in the file does not: in a real
+        // statement the genuine pair agrees to six decimal places (1.173800)
+        // while the neighbouring pairs disagree in the second (1.0627 vs 1.1103).
+        if (lastBlock && totalCcy === base && lastBlock.ccy !== base) {
+          const r = translationRate(lastBlock, { cost: totCost, value: totValue })
+          if (r !== null && asOf !== '') {
+            fxRates.push({
+              id: `${base}|${lastBlock.ccy}|${asOf}`,
+              base,
+              quote: lastBlock.ccy,
+              date: asOf,
+              // Stored base->quote to match the provider convention: how many
+              // units of `quote` one unit of `base` buys.
+              rate: 1 / r,
+            })
+          }
+        }
+        lastBlock = blockRows > 0 ? { ccy: blockCcy, cost: totCost, value: totValue } : null
+
         if (blockRows > 0 && (totalCcy === '' || totalCcy === blockCcy)) {
-          const theirValue = num(col(br.b, COL.value))
-          const theirCost = num(col(br.b, COL.costBasis))
+          const theirValue = totValue
+          const theirCost = totCost
           if (theirValue !== null) {
             reconciliation.push(checkOf(`Open Positions value (${blockCcy})`, blockValue, theirValue, blockCcy))
           }
@@ -1306,6 +1382,7 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
 
   return {
     instruments,
+    fxRates,
     transactions,
     distributions,
     accruals,

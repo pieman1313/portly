@@ -139,7 +139,9 @@ export function Overview() {
         />
         <p className="text-xs text-muted mt-2">
           {valueKnown
-            ? `Securities only — cash balances are not counted. Profit is unrealised plus realised plus dividends received, against the cost of shares still held.`
+            ? view.totalPnlBase === null
+              ? `Securities only — cash balances are not counted. Profit is not shown: market value converts at one rate on the valuation date, but cost basis needs a rate on each purchase date, so the two would cover different positions. Refresh market data on the Data tab to fill in the exchange-rate history.`
+              : `Securities only — cash balances are not counted. Profit is unrealised plus realised plus dividends received, against the cost of shares still held.`
             : blockedByFx
               ? `No open position could be converted to ${base}, so the total cannot be worked out. Refresh FX rates on the Data tab.`
               : 'No open position has a usable price yet, so the total cannot be worked out. Refresh market data, or set a price on the Holdings tab.'}

@@ -223,6 +223,14 @@ export function Holdings() {
   const valueKnown = openCount === 0 || open.some((h) => h.marketValueBase !== null)
   const costKnown = openCount === 0 || open.some((h) => h.costBasisBase !== null)
   const pnlKnown = openCount === 0 || open.some((h) => h.unrealizedPnlBase !== null)
+  // Market value needs one FX rate on the valuation date; cost basis needs one
+  // per acquisition date. Offline the first is available and the second is not,
+  // so these two totals routinely cover different numbers of positions. Say so
+  // on the tile — an unlabelled subtotal beside a full-portfolio value reads as
+  // a portfolio-wide figure.
+  const cov = portfolio.costBasisCoverage
+  const partial = cov.covered < cov.total
+  const coverageHint = partial ? ` · ${cov.covered} of ${cov.total} positions` : ''
   const toggle = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -259,7 +267,7 @@ export function Holdings() {
           value={
             <Money value={costKnown ? portfolio.costBasisBase : null} currency={base} dp={0} />
           }
-          hint={`${portfolio.method} · shares still held`}
+          hint={`${portfolio.method} · shares still held${coverageHint}`}
         />
         <StatTile
           label={`Unrealised P/L (${base})`}
@@ -276,7 +284,7 @@ export function Holdings() {
             pnlKnown && costKnown
               ? pct(portfolio.unrealizedPnlBase, portfolio.costBasisBase)
               : null,
-          )} on cost`}
+          )} on cost${coverageHint}`}
         />
       </div>
 

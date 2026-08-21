@@ -408,6 +408,43 @@ describe('accruals', () => {
   })
 })
 
+describe('exchange rates recovered from the statement', () => {
+  it('reads the rate out of the base-currency restatement of a currency block', () => {
+    // The fixture states a EUR block (cost 6075, value 6315) and then restates
+    // it in USD (7047, 7325.4). Both columns scale by 1.16, which is what marks
+    // the row as a translation rather than an unrelated subtotal.
+    const b = basic()
+    const eur = b.fxRates.find((r) => r.quote === 'EUR')
+    expect(eur).toBeDefined()
+    expect(eur?.base).toBe('USD')
+    expect(eur?.date).toBe('2025-12-31')
+    expect(1 / (eur?.rate ?? 0)).toBeCloseTo(1.16, 6)
+  })
+
+  it('ignores a following total whose two columns disagree', async () => {
+    // Cost scales by 1.10 and value by 1.30 — not a translation, just the next
+    // subtotal in the file. Inventing an exchange rate from it would silently
+    // misprice a whole currency sleeve.
+    const b = await mini([
+      'Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code',
+      'Open Positions,Data,Summary,Stocks,EUR,AAA,100,1,10,1000,12,1200,200,',
+      'Open Positions,Total,,Stocks,EUR,,,,,1000,,1200,200,',
+      'Open Positions,Total,,Stocks,USD,,,,,1100,,1560,460,',
+    ])
+    expect(b.fxRates).toEqual([])
+  })
+
+  it('does not invent a rate from a single usable column', async () => {
+    const b = await mini([
+      'Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code',
+      'Open Positions,Data,Summary,Stocks,EUR,AAA,100,1,10,1000,12,1200,200,',
+      'Open Positions,Total,,Stocks,EUR,,,,,1000,,,,',
+      'Open Positions,Total,,Stocks,USD,,,,,1160,,,,',
+    ])
+    expect(b.fxRates).toEqual([])
+  })
+})
+
 describe('cash events', () => {
   it('reads deposits and interest without swallowing the total rows', () => {
     const { cashEvents } = basic()

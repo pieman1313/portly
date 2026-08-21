@@ -46,6 +46,9 @@ Things it gets right that are easy to get wrong:
 - **Dividend currency ≠ trading currency.** An ETF can trade in EUR and pay in GBP.
 - **Pence.** Some London lines quote in GBX, and the price feed does not say so.
   The unit is calibrated against the statement's own closing price.
+- **The statement's own exchange rate**, recovered from the base-currency
+  restatement of each currency block — the row that otherwise just looks like a
+  duplicate subtotal.
 - **Ex-date for yields, pay-date for cash-flow charts**, never crossed.
 - **Fractional shares** are stored as decimals throughout.
 - **Accrual netting.** `Po`/`Re` pairs are netted so declared-but-unpaid
@@ -54,7 +57,14 @@ Things it gets right that are easy to get wrong:
 ## Market data
 
 Optional. With it off, the app values your portfolio at the closing prices
-already inside the statement and works fully offline.
+already inside the statement, converting foreign holdings at the exchange rate
+the statement states about itself — so the total value is right, offline, on the
+first import.
+
+Cost basis is the exception. Converting it correctly needs a rate on each
+purchase date, and no statement carries those, so profit figures are suppressed
+rather than mixed across different sets of positions. One refresh fills in the
+ECB history and they appear.
 
 With it on, prices, dividend histories and FX rates are fetched **client-side**
 from keyless, CORS-open endpoints — [stockanalysis.com](https://stockanalysis.com),
@@ -76,7 +86,7 @@ distributions are seasonal. That is what the dividend history is for.
 ```sh
 pnpm install
 pnpm dev          # http://localhost:5173
-pnpm test         # 412 tests
+pnpm test         # 424 tests
 pnpm typecheck
 pnpm build
 ```
@@ -92,6 +102,16 @@ outside the repo — never commit a brokerage export.
 
 ```sh
 pnpm tsx scripts/verify-statement.ts ~/Downloads/statement.csv
+```
+
+`scripts/screenshot.mjs` drives a headless Chrome over the DevTools Protocol:
+it loads the running app, imports a statement through the real file input, and
+captures every tab at phone and desktop widths while measuring horizontal
+overflow. Charts and layout are the part a `textContent` assertion cannot see.
+
+```sh
+pnpm dev &
+node scripts/screenshot.mjs http://localhost:5173/portly/ ~/Downloads/statement.csv
 ```
 
 ## Architecture

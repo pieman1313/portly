@@ -105,6 +105,16 @@ export interface Portfolio {
   costBasisBase: number
   unrealizedPnlBase: number
   realizedPnlBase: number
+  /** How many open holdings the cost-basis total actually covers. */
+  costBasisCoverage: { covered: number; total: number }
+  /** How many open holdings the market-value total actually covers. */
+  marketValueCoverage: { covered: number; total: number }
+  /**
+   * True when both totals cover every open holding. When false, a ratio built
+   * from them (profit %, yield on cost) compares different sets of positions
+   * and must be suppressed rather than displayed.
+   */
+  aggregatesComparable: boolean
   /** Instruments held with no usable price. Their weight is null. */
   unpriced: string[]
   /** Instruments whose base-currency conversion failed. */
@@ -350,6 +360,20 @@ export function buildHoldings(
   const totalMv = sum(
     counted.map((h) => h.marketValueBase).filter((v): v is number => v !== null),
   )
+
+  // Market value and cost basis do NOT need the same FX data, and offline they
+  // routinely disagree about which holdings they cover. Market value needs one
+  // rate on the valuation date — which the statement states about itself. Cost
+  // basis needs a rate on every acquisition date, which no statement carries.
+  //
+  // So a foreign holding's value converts while its cost does not, and summing
+  // both anyway produces a portfolio whose "profit %" is one sleeve's P/L over
+  // that sleeve's cost, printed beside a whole-portfolio value. It looks
+  // authoritative and it is wrong. Report the coverage so callers can suppress
+  // the derived figures instead of quietly mixing sets.
+  const held = counted.filter((h) => !h.closed)
+  const costCovered = held.filter((h) => h.costBasisBase !== null).length
+  const valueCovered = held.filter((h) => h.marketValueBase !== null).length
   for (const h of counted) {
     h.weightPct = h.marketValueBase === null ? null : pct(h.marketValueBase, totalMv)
   }
@@ -377,6 +401,9 @@ export function buildHoldings(
     realizedPnlBase: sum(
       counted.map((h) => h.realizedPnlBase).filter((v): v is number => v !== null),
     ),
+    costBasisCoverage: { covered: costCovered, total: held.length },
+    marketValueCoverage: { covered: valueCovered, total: held.length },
+    aggregatesComparable: costCovered === held.length && valueCovered === held.length,
     unpriced,
     missingFx,
     discrepancies,

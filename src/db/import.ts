@@ -127,7 +127,7 @@ async function persistBundle(
     'rw',
     [
       db.rawFiles, db.rawRows, db.instruments, db.transactions,
-      db.distributions, db.accruals, db.cashEvents, db.positions,
+      db.distributions, db.accruals, db.cashEvents, db.positions, db.fxRates,
     ],
     async () => {
       await db.rawFiles.put(rawFile)
@@ -177,6 +177,21 @@ async function persistBundle(
       // period replaces rather than accumulates.
       await db.positions.bulkPut(bundle.positions)
       added.positions = bundle.positions.length
+
+      // Rates the statement stated about itself. Written with `add`-like
+      // semantics via put on a deterministic id, and deliberately NOT allowed to
+      // overwrite a rate already present: a real ECB rate fetched for that date
+      // is better than one reverse-engineered from rounded block totals.
+      if (bundle.fxRates.length) {
+        const existing = new Set(
+          (await db.fxRates.bulkGet(bundle.fxRates.map((r) => r.id)))
+            .filter(Boolean)
+            .map((r) => (r as { id: string }).id),
+        )
+        const fresh = bundle.fxRates.filter((r) => !existing.has(r.id))
+        if (fresh.length) await db.fxRates.bulkPut(fresh)
+        added.fxRates = fresh.length
+      }
     },
   )
 
