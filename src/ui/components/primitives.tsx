@@ -18,19 +18,41 @@ export function Card({
   right,
   children,
   className = '',
+  cap = true,
 }: {
   title?: ReactNode
   subtitle?: ReactNode
   right?: ReactNode
   children: ReactNode
   className?: string
+  /**
+   * Cap the card at 85vh on a phone and scroll its body. Set false for a card
+   * that is meant to grow with the page — a long list reads better as part of
+   * the page than as a small window onto itself, and nesting a scroller inside
+   * the page scroller costs the user a gesture every time.
+   */
+  cap?: boolean
 }) {
+  // Only on mobile: on a laptop a tall card is just a tall card, and capping it
+  // there would introduce a scrollbar nobody asked for.
+  //
+  // Note there is no `overscroll-contain` here, deliberately. Containing the
+  // vertical axis would stop a swipe that starts inside a capped card from ever
+  // reaching the page once the card hits its own scroll limit, which is exactly
+  // the trap the payments matrix used to have.
+  const body = cap
+    ? 'max-h-[85vh] overflow-y-auto sm:max-h-none sm:overflow-visible'
+    : ''
+
   return (
     <section
-      className={`bg-surface border border-border rounded-xl p-4 sm:p-5 ${className}`}
+      className={`bg-surface border border-border rounded-xl flex flex-col ${cap ? 'max-h-[85vh] sm:max-h-none' : ''} ${className}`}
     >
       {(title || right) && (
-        <header className="flex items-start justify-between gap-3 mb-3">
+        // Sticky so the card keeps saying what it is while its body scrolls
+        // underneath. Matches the card's own background so rows slide behind it
+        // rather than showing through.
+        <header className="flex items-start justify-between gap-3 shrink-0 bg-surface rounded-t-xl px-4 pt-4 pb-3 sm:px-5 sm:pt-5">
           <div className="min-w-0">
             {title && <h2 className="text-sm font-semibold text-ink truncate">{title}</h2>}
             {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
@@ -38,7 +60,9 @@ export function Card({
           {right && <div className="shrink-0">{right}</div>}
         </header>
       )}
-      {children}
+      <div className={`min-h-0 px-4 pb-4 sm:px-5 sm:pb-5 ${!(title || right) ? 'pt-4 sm:pt-5' : ''} ${body}`}>
+        {children}
+      </div>
     </section>
   )
 }

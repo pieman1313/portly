@@ -125,6 +125,31 @@ describe('with an imported statement', () => {
   })
 })
 
+describe('scroll containment', () => {
+  beforeEach(async () => {
+    await wipe()
+    await importStatementText(FIXTURE, 'activity-basic.csv')
+  })
+
+  it('contains the payments matrix horizontally only, so a vertical swipe reaches the page', async () => {
+    // Regression, verified in a real browser: `overscroll-contain` blocks scroll
+    // chaining on BOTH axes, so a vertical swipe starting inside the matrix
+    // never reached the page and the tab felt frozen. Measured with a headless
+    // wheel event: contained on both axes the page stayed at scrollY 765; with
+    // x-only containment it moved to 1125. Horizontal containment is the part
+    // we want — dragging the matrix sideways should not drag the page.
+    window.location.hash = '#/income'
+    renderTab(<App />)
+    const region = await waitFor(() => {
+      const el = document.querySelector('[aria-label^="Payments matrix"]')
+      if (!el) throw new Error('matrix not rendered')
+      return el
+    })
+    expect(region.className).toContain('overscroll-x-contain')
+    expect(region.className).not.toMatch(/(^|\s)overscroll-contain(\s|$)/)
+  })
+})
+
 describe('base currency', () => {
   beforeEach(wipe)
 

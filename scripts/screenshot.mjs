@@ -240,6 +240,16 @@ for (const v of VIEWPORTS) {
       })`)
       console.log(`  DIAG ${v.name}/${tab}: ${d}`)
     }
+    if (process.env.CARDCHECK && v.name === 'phone') {
+      const d = await evaluate(`JSON.stringify([...document.querySelectorAll('section')].map(sec=>{
+        const h=sec.querySelector('h2'); const r=sec.getBoundingClientRect();
+        const body=sec.lastElementChild; const bs=body?getComputedStyle(body):null;
+        return {t:(h?.textContent??'(untitled)').slice(0,26), h:Math.round(r.height),
+                cap:Math.round(window.innerHeight*0.85), oy:bs?.overflowY,
+                scrolls: body ? body.scrollHeight > body.clientHeight + 1 : false}
+      }))`)
+      console.log(`  CARDS ${tab}: ${d}`)
+    }
     if (process.env.TEXT) console.log(`\n--- ${v.name}/${tab} ---\n` + (await evaluate('document.body.innerText')).slice(0, 1400))
     const path = await shoot(`${v.name}-${tab}`, v)
     const text = await evaluate('document.body.innerText')

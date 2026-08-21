@@ -31,6 +31,33 @@ const BASE_URL = 'https://api.frankfurter.dev/v1'
 const CURRENCY = /^[A-Z]{3}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/**
+ * Every currency the ECB publishes, and therefore every currency this app can
+ * convert to or from. Not a preference list — a hard boundary. Ask Frankfurter
+ * for a base outside it and the request 404s, which takes every conversion in
+ * the app down with it, so the UI offers exactly these and nothing else.
+ *
+ * Checked against /v1/currencies. The ECB set changes about once a decade
+ * (HRK left on euro adoption in 2023); `fetchSupportedCurrencies` reads the
+ * live list when you want to confirm it.
+ */
+export const SUPPORTED_CURRENCIES: Readonly<Record<Currency, string>> = Object.freeze({
+  AUD: 'Australian Dollar', BRL: 'Brazilian Real', CAD: 'Canadian Dollar',
+  CHF: 'Swiss Franc', CNY: 'Chinese Renminbi Yuan', CZK: 'Czech Koruna',
+  DKK: 'Danish Krone', EUR: 'Euro', GBP: 'British Pound',
+  HKD: 'Hong Kong Dollar', HUF: 'Hungarian Forint', IDR: 'Indonesian Rupiah',
+  ILS: 'Israeli New Shekel', INR: 'Indian Rupee', ISK: 'Icelandic Króna',
+  JPY: 'Japanese Yen', KRW: 'South Korean Won', MXN: 'Mexican Peso',
+  MYR: 'Malaysian Ringgit', NOK: 'Norwegian Krone', NZD: 'New Zealand Dollar',
+  PHP: 'Philippine Peso', PLN: 'Polish Złoty', RON: 'Romanian Leu',
+  SEK: 'Swedish Krona', SGD: 'Singapore Dollar', THB: 'Thai Baht',
+  TRY: 'Turkish Lira', USD: 'US Dollar', ZAR: 'South African Rand',
+})
+
+export function isSupportedCurrency(c: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SUPPORTED_CURRENCIES, c.trim().toUpperCase())
+}
+
 export interface FxSnapshot {
   base: Currency
   /** What the ECB actually published, which may precede the date requested. */

@@ -500,6 +500,11 @@ function MatrixCard({
 
   return (
     <Card
+      // The matrix owns its own scroller, and it has to: the sticky first column
+      // and header row are positioned against it. Letting the card cap and
+      // scroll as well would stack two scrollers on a phone, so a swipe would
+      // move whichever one the browser guessed at.
+      cap={false}
       title="Payments matrix"
       subtitle={`Each holding, each month, ${net ? 'net of withholding' : 'before withholding'}`}
       right={
@@ -516,7 +521,12 @@ function MatrixCard({
         tabIndex={0}
         role="region"
         aria-label="Payments matrix, scrolls horizontally"
-        className="-mx-4 sm:-mx-5 max-h-[70vh] overflow-auto overscroll-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        className="-mx-4 sm:-mx-5 max-h-[70vh] overflow-auto overscroll-x-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        // overscroll-x-contain, NOT overscroll-contain. Containing BOTH axes stops
+        // a vertical swipe that starts inside the matrix from ever reaching the
+        // page, so on a phone the tab appears frozen until you find a gap beside
+        // the table. Horizontal containment is what we actually want: swiping the
+        // matrix sideways should not also drag the page.
       >
         <table className="border-separate border-spacing-0 text-xs">
           <caption className="px-4 sm:px-5 pb-3 text-left">

@@ -4,6 +4,7 @@ import { usePortfolio } from '../usePortfolio'
 import { db } from '../../db/schema'
 import type { Holding } from '../../metrics/holdings'
 import { pct, sumDefined } from '../../metrics/money'
+import type { ForecastCoverage } from '../../metrics/forecast'
 import type { Currency, ISODate, Provenance, Quote } from '../../domain/types'
 import {
   Badge,
@@ -36,17 +37,22 @@ import {
  *     not a yield of nought.
  *   - Below `sm` this is a list of cards, not a squeezed table. Eleven columns
  *     cannot be honest at 360px and a horizontal scrollbar just hides them.
+ *   - A phone screen is a budget. The card is capped and scrolls internally, so
+ *     every row of chrome above the list is a position the user cannot see. On
+ *     a phone the controls collapse to one row and the prose moves to the
+ *     footnotes; from `sm` up there is room for all of it and nothing moves.
  */
 
 type SortKey = 'value' | 'weight' | 'pnl' | 'pnlPct' | 'symbol' | 'yield'
 
-const SORTS: { value: SortKey; label: string }[] = [
-  { value: 'value', label: 'Market value' },
-  { value: 'weight', label: 'Weight' },
-  { value: 'pnl', label: 'Unrealised P/L' },
-  { value: 'pnlPct', label: 'Unrealised P/L %' },
-  { value: 'symbol', label: 'Symbol' },
-  { value: 'yield', label: 'Forward yield' },
+/** `short` is the phone label: the collapsed toolbar has room for a word. */
+const SORTS: { value: SortKey; label: string; short: string }[] = [
+  { value: 'value', label: 'Market value', short: 'Value' },
+  { value: 'weight', label: 'Weight', short: 'Weight' },
+  { value: 'pnl', label: 'Unrealised P/L', short: 'P/L' },
+  { value: 'pnlPct', label: 'Unrealised P/L %', short: 'P/L %' },
+  { value: 'symbol', label: 'Symbol', short: 'Symbol' },
+  { value: 'yield', label: 'Forward yield', short: 'Yield' },
 ]
 
 /** A holding plus everything the table needs, resolved once per render. */
@@ -87,6 +93,10 @@ export function Holdings() {
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const [showClosed, setShowClosed] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  // Phone only. Closed by default because the defaults — biggest position
+  // first, sold hidden — are what almost every visit wants, and an open panel
+  // would put the chrome back where it was.
+  const [controlsOpen, setControlsOpen] = useState(false)
 
   const rows = useMemo<Row[]>(() => {
     const quoteByKey = new Map(view.quotes.map((q) => [q.instrumentKey, q]))
@@ -249,6 +259,10 @@ export function Holdings() {
       if (!next.delete(key)) next.add(key)
       return next
     })
+  // Both sentences are printed above the list on a wide screen and demoted to
+  // the footnotes on a phone, so they are built once and placed twice.
+  const currencyNote = `Value, cost and P/L in ${base}. Price and average cost in the position's own currency.`
+  const coverage = coverageNote(forecast.coverage, base)
 
   return (
     <div className="space-y-4">
@@ -302,18 +316,52 @@ export function Holdings() {
 
       <Card
         title="Positions"
-        subtitle={`Value, cost and P/L in ${base}. Price and average cost in the position's own currency.`}
+        // The subtitle is one of three things standing between a phone user and
+        // the first position, and it is the least load-bearing of them: every
+        // mobile card already prints the currency beside each figure. It moves
+        // to the footnotes below `sm`.
+        subtitle={<span className="hidden sm:inline">{currencyNote}</span>}
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search symbol or name"
-            aria-label="Search holdings by symbol, name, ISIN or a previous ticker"
-            className="h-11 sm:w-56 min-w-0 rounded-lg bg-bg border border-border px-3 text-sm placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          />
-          <div className="flex flex-wrap items-center gap-2">
+        {/* One row on a phone — search, then a disclosure holding sort,
+            direction and show-sold. Stacked, those controls plus the prose ran
+            to roughly 200px, which inside an 85vh card is most of a position.
+            The disclosure button is `sm:hidden` and the panel is `sm:flex`, so
+            from `sm` up the panel is simply always open and the row is the
+            search-left / controls-right layout that was always here. */}
+        <div className="mb-3 sm:flex sm:items-center sm:justify-between sm:gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search symbol or name"
+              aria-label="Search holdings by symbol, name, ISIN or a previous ticker"
+              className="h-11 flex-1 min-w-0 sm:flex-none sm:w-56 rounded-lg bg-bg border border-border px-3 text-sm placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <button
+              type="button"
+              onClick={() => setControlsOpen((o) => !o)}
+              aria-expanded={controlsOpen}
+              aria-controls="holdings-controls"
+              // Collapsed, the button still names the order. A list whose sort
+              // you cannot see is a list you have to re-read to trust.
+              aria-label={`${shortSort(sort)}, ${directionLabel(sort, dir).toLowerCase()}${
+                showClosed ? ', sold positions shown' : ''
+              } — sort and filter positions`}
+              // Chevron, order, arrow and nothing else: at 360px the word
+              // "Sort" here is 20px, and 20px is the tail of the search
+              // placeholder beside it. The accessible name says the rest.
+              className="sm:hidden h-11 shrink-0 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-border text-xs text-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <Chevron open={controlsOpen} />
+              <span className="text-ink">{shortSort(sort)}</span>
+              <span aria-hidden>{dir === 'desc' ? '↓' : '↑'}</span>
+            </button>
+          </div>
+          <div
+            id="holdings-controls"
+            className={`${controlsOpen ? 'flex' : 'hidden'} mt-2 flex-wrap items-center gap-2 sm:mt-0 sm:flex`}
+          >
             <label htmlFor="holdings-sort" className="sr-only">
               Sort by
             </label>
@@ -327,7 +375,10 @@ export function Holdings() {
                 // but names read A–Z. Flipping to match saves a second tap.
                 setDir(next === 'symbol' ? 'asc' : 'desc')
               }}
-              className="h-11 rounded-lg bg-bg border border-border px-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              // `basis-40` is what makes "Show sold" wrap to its own line
+              // instead of squeezing this to a stub: flex breaks lines on the
+              // basis, and a `flex-1` with a zero basis never asks for room.
+              className="h-11 flex-1 basis-40 min-w-0 sm:flex-none sm:basis-auto rounded-lg bg-bg border border-border px-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -338,7 +389,10 @@ export function Holdings() {
             <button
               type="button"
               onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-              className="h-11 px-3 rounded-lg border border-border text-xs text-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              // Without this the button announces as "High–low", which reads as
+              // a statement of fact rather than something you can press.
+              aria-label={`${directionLabel(sort, dir)} — reverse the sort order`}
+              className="h-11 shrink-0 px-3 rounded-lg border border-border text-xs text-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <span aria-hidden>{dir === 'desc' ? '↓' : '↑'}</span>{' '}
               {directionLabel(sort, dir)}
@@ -358,20 +412,7 @@ export function Holdings() {
           </div>
         </div>
 
-        {forecast.coverage.positions > 0 &&
-          (forecast.coverage.ratio < 1 || forecast.coverage.missingFx.length > 0) && (
-          <p className="text-xs text-muted mb-3">
-            Forward yield is estimated for {forecast.coverage.estimated} of{' '}
-            {forecast.coverage.positions} positions
-            {forecast.coverage.declaredOnly.length > 0 &&
-              `, declared accruals only for ${forecast.coverage.declaredOnly.length}`}
-            {forecast.coverage.missing.length > 0 &&
-              `, unknown for ${forecast.coverage.missing.length}`}
-            {forecast.coverage.missingFx.length > 0 &&
-              `, not convertible to ${base} for ${forecast.coverage.missingFx.length}`}
-            .
-          </p>
-        )}
+        {coverage !== null && <p className="hidden sm:block text-xs text-muted mb-3">{coverage}</p>}
 
         {visible.length === 0 ? (
           <div className="py-8 text-center">
@@ -421,6 +462,7 @@ export function Holdings() {
               rows={visible}
               totals={totals}
               hiddenSold={hiddenSold}
+              demoted={[currencyNote, coverage].filter((n) => n !== null)}
             />
           </>
         )}
@@ -1049,16 +1091,26 @@ function Footnotes({
   rows,
   totals,
   hiddenSold,
+  demoted,
 }: {
   base: Currency
   rows: Row[]
   totals: Totals
   hiddenSold: { count: number; realized: number }
+  /** Prose the phone layout moved down here from above the list. */
+  demoted: string[]
 }) {
   const anyDeclared = rows.some((r) => r.declaredOnly && r.yieldPct !== null)
   const plural = (n: number) => (n === 1 ? '' : 's')
   return (
     <div className="mt-3 pt-3 border-t border-border text-[11px] text-muted space-y-1">
+      {/* Below `sm` only: on a wide screen these two already sit above the
+          table, and printing them twice would read as a stutter. */}
+      {demoted.map((note) => (
+        <p key={note} className="sm:hidden">
+          {note}
+        </p>
+      ))}
       <p>“—” means unknown, not zero. Select a row for identity, lots and price provenance.</p>
       {anyDeclared && (
         <p>† Forward yield from declared accruals only — roughly four weeks of visibility.</p>
@@ -1220,6 +1272,29 @@ function compare(a: Row, b: Row, key: SortKey, factor: number): number {
   if (bv === null) return -1
   if (av === bv) return a.h.symbol.localeCompare(b.h.symbol)
   return factor * (av < bv ? -1 : 1)
+}
+
+function shortSort(key: SortKey): string {
+  return SORTS.find((s) => s.value === key)?.short ?? key
+}
+
+/**
+ * The forward-yield caveat, as one sentence rather than a block of JSX, so the
+ * phone and desktop placements cannot drift apart. Null when every open
+ * position has full provider coverage — there is then nothing to caveat.
+ */
+function coverageNote(coverage: ForecastCoverage, base: Currency): string | null {
+  if (coverage.positions === 0) return null
+  if (coverage.ratio >= 1 && coverage.missingFx.length === 0) return null
+  const parts = [`Forward yield is estimated for ${coverage.estimated} of ${coverage.positions} positions`]
+  if (coverage.declaredOnly.length > 0) {
+    parts.push(`declared accruals only for ${coverage.declaredOnly.length}`)
+  }
+  if (coverage.missing.length > 0) parts.push(`unknown for ${coverage.missing.length}`)
+  if (coverage.missingFx.length > 0) {
+    parts.push(`not convertible to ${base} for ${coverage.missingFx.length}`)
+  }
+  return `${parts.join(', ')}.`
 }
 
 function directionLabel(sort: SortKey, dir: 'asc' | 'desc'): string {

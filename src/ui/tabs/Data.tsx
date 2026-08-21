@@ -7,6 +7,7 @@ import { useMarketData } from '../useMarketData'
 import type { RefreshState } from '../useMarketData'
 import { deleteFile, importStatementFile, rederiveAll } from '../../db/import'
 import { clearEverything, clearMarketData, saveSettings, storageEstimate } from '../../db/schema'
+import { SUPPORTED_CURRENCIES, isSupportedCurrency } from '../../providers/frankfurter'
 import { exportBackup, readBackup, restoreBackup } from '../../db/backup'
 import type { BackupPayload, TableDump } from '../../db/backup'
 import type {
@@ -1075,20 +1076,12 @@ function BaseCurrencyField({
   value: string
   onCommit: (code: string) => void
 }) {
-  const [draft, setDraft] = useState(value)
-  const lastSeen = useRef(value)
-
-  // Adopt the stored value when it changes underneath us (a restore, another
-  // tab) but never while the user is typing — hence comparing against the last
-  // value we saw rather than against the draft.
-  useEffect(() => {
-    if (lastSeen.current !== value) {
-      lastSeen.current = value
-      setDraft(value)
-    }
-  }, [value])
-
-  const valid = /^[A-Z]{3}$/.test(draft)
+  // A select, not a text field. The old free-text input accepted any
+  // three-letter string, and anything outside the ECB's list — AED, TWD, CNH —
+  // makes every Frankfurter request 404, which silently takes down FX for the
+  // whole portfolio. There is no reason to let someone type their way into that.
+  const codes = Object.keys(SUPPORTED_CURRENCIES).sort()
+  const known = isSupportedCurrency(value)
 
   return (
     <div>
@@ -1099,41 +1092,38 @@ function BaseCurrencyField({
         Every total is converted into this currency at the ECB rate for the date of each event.
       </p>
       <div className="flex flex-wrap items-center gap-2 mt-2">
-        <input
+        <select
           id="portly-base-ccy"
-          value={draft}
-          inputMode="text"
-          autoCapitalize="characters"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={3}
-          aria-invalid={!valid}
+          value={known ? value : ''}
           aria-describedby="portly-base-ccy-hint"
-          onChange={(e) => setDraft(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-          onBlur={() => {
-            if (valid && draft !== value) onCommit(draft)
-            else if (!valid) setDraft(value)
+          onChange={(e) => {
+            const next = e.target.value
+            if (next && next !== value) onCommit(next)
           }}
-          className={`num w-24 min-h-[44px] px-3 rounded-lg bg-bg border text-sm tracking-widest uppercase ${FOCUS}
-            ${valid ? 'border-border' : 'border-crit'}`}
-        />
-        <button
-          type="button"
-          disabled={!valid || draft === value}
-          onClick={() => onCommit(draft)}
-          className={`min-h-[44px] px-3 rounded-lg border border-border text-sm disabled:opacity-40 ${FOCUS}`}
+          className={`min-h-[44px] px-3 pr-8 rounded-lg bg-bg border border-border text-sm ${FOCUS}`}
         >
-          Save
-        </button>
+          {/* Only reachable if a statement or an older build set something the
+              ECB does not publish. Shown so the field never lies about the
+              value actually in force. */}
+          {!known && <option value="">{value || 'Select a currency'}</option>}
+          {codes.map((c) => (
+            <option key={c} value={c}>
+              {c} — {SUPPORTED_CURRENCIES[c]}
+            </option>
+          ))}
+        </select>
       </div>
       <p id="portly-base-ccy-hint" className="text-xs mt-1">
-        {valid ? (
+        {known ? (
           <span className="text-muted">
-            Three-letter ISO code, for example USD, EUR or GBP. Changing this needs exchange rates
-            for the new base — refresh market data afterwards.
+            The {codes.length} currencies the ECB publishes daily rates for. Changing this needs
+            exchange rates for the new base — refresh market data afterwards.
           </span>
         ) : (
-          <span className="text-crit">Enter a three-letter code, for example EUR.</span>
+          <span className="text-crit">
+            {value} is not published by the ECB, so no conversion is possible. Pick one of the{' '}
+            {codes.length} supported currencies.
+          </span>
         )}
       </p>
     </div>
