@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { installBrowserStubs, renderTab } from '../../test/render'
 import { importStatementText } from '../../db/import'
@@ -28,6 +28,12 @@ const POISON = /\bNaN\b|\bundefined\b|\bInfinity\b|\[object Object\]/
 
 function pageText(): string {
   return document.body.textContent ?? ''
+}
+
+/** jest-dom is not installed, so read the property the pager actually sets. */
+function disabled(label: string): boolean {
+  const el = screen.getByLabelText(label)
+  return el instanceof HTMLButtonElement && el.disabled
 }
 
 function expectNoPoison(): void {
@@ -141,12 +147,75 @@ describe('scroll containment', () => {
     window.location.hash = '#/income'
     renderTab(<App />)
     const region = await waitFor(() => {
-      const el = document.querySelector('[aria-label^="Payments matrix"]')
+      const el = document.querySelector('[aria-label="Payments matrix, scrolls horizontally"]')
       if (!el) throw new Error('matrix not rendered')
       return el
     })
     expect(region.className).toContain('overscroll-x-contain')
     expect(region.className).not.toMatch(/(^|\s)overscroll-contain(\s|$)/)
+  })
+
+  it('renders that scroller from sm up only, and gives a phone a paged window instead', async () => {
+    // Containment fixed chaining and never touched CAPTURE, which is the other
+    // half of the bug and has no CSS answer: a touch gesture locks to one axis
+    // as it begins, so a diagonal swipe over a horizontal scroller locks to
+    // horizontal and the page does not move until the finger lifts. Measured in
+    // a real browser at 390px, dragging from the middle of the old scroller:
+    // pure vertical moved the page 356px, 30 degrees off vertical 310px, 45
+    // degrees 0px. `touch-action: pan-x` measured 0px at every angle — it
+    // removes vertical panning rather than delegating it.
+    //
+    // So below sm the scroller is not rendered: display:none takes it out of
+    // hit testing entirely, and a paged month window stands in its place. This
+    // asserts the arrangement, because a stray `sm:` dropped from either half
+    // puts a horizontal scrollport back under the user's thumb.
+    window.location.hash = '#/income'
+    renderTab(<App />)
+    const region = await waitFor(() => {
+      const el = document.querySelector('[aria-label="Payments matrix, scrolls horizontally"]')
+      if (!el) throw new Error('matrix not rendered')
+      return el
+    })
+    const wrapper = region.parentElement
+    expect(wrapper?.className).toMatch(/(^|\s)hidden(\s|$)/)
+    expect(wrapper?.className).toContain('sm:block')
+
+    // The phone window: same label prefix, no scrollport of its own anywhere
+    // inside it, and hidden from sm up so the two never show at once.
+    const phone = [...document.querySelectorAll('[aria-label^="Payments matrix"]')].find(
+      (el) => el !== region,
+    )
+    expect(phone).toBeDefined()
+    expect(phone?.closest('.sm\\:hidden')).not.toBeNull()
+    const scrollers = [phone, ...(phone?.querySelectorAll('*') ?? [])].filter((el) =>
+      /overflow/.test(el?.className.toString() ?? ''),
+    )
+    expect(scrollers.map((el) => el?.className.toString())).toEqual([])
+  })
+
+  it('opens the phone window on the most recent months and pages back through them', async () => {
+    // The fixture pays from April to October, seven months against a window of
+    // four, so the window has somewhere to go. Landing on the oldest months
+    // would be the one thing nobody opens this to see.
+    window.location.hash = '#/income'
+    renderTab(<App />)
+    const group = await waitFor(() => {
+      const el = [...document.querySelectorAll('[role="group"]')].find((n) =>
+        (n.getAttribute('aria-label') ?? '').startsWith('Payments matrix,'),
+      )
+      if (!el) throw new Error('phone window not rendered')
+      return el
+    })
+    expect(group.getAttribute('aria-label')).toBe('Payments matrix, Jul – Oct 2025')
+    expect(pageText()).toContain('Showing 4 of 7 months')
+    expect(disabled('Show later months')).toBe(true)
+    expect(disabled('Show earlier months')).toBe(false)
+
+    fireEvent.click(screen.getByLabelText('Show earlier months'))
+    expect(group.getAttribute('aria-label')).toBe('Payments matrix, Apr – Jul 2025')
+    expect(disabled('Show earlier months')).toBe(true)
+    expect(disabled('Show later months')).toBe(false)
+    expectNoPoison()
   })
 })
 

@@ -755,17 +755,17 @@ function HoldingCard({
         className="w-full min-h-[44px] p-3 flex items-start justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
         <span className="min-w-0">
-          <span className="flex items-center gap-1.5 flex-wrap">
+          <span className="flex items-baseline gap-1.5 flex-wrap">
             <Chevron open={open} />
             <span className="font-semibold text-sm">{h.symbol}</span>
-            <span className="text-[11px] text-muted">{h.currency}</span>
+            {/* Quantity rides in the header because it is the one figure that
+                answers "which position is this" alongside the ticker, and
+                keeping it here is what lets everything else collapse. */}
+            <span className="num text-[11px] text-muted">
+              {formatQty(h.quantity)} @ {h.currency}
+            </span>
           </span>
           <span className="block text-xs text-muted truncate mt-0.5">{h.name}</span>
-          {row.otherAliases.length > 0 && (
-            <span className="block text-[11px] text-muted truncate">
-              also {row.otherAliases.join(', ')}
-            </span>
-          )}
         </span>
         <span className="text-right shrink-0">
           <Money value={h.marketValueBase} currency={base} className="text-sm font-semibold" />
@@ -775,45 +775,47 @@ function HoldingCard({
         </span>
       </button>
 
-      <div className="px-3 pb-3">
-        <div className="flex flex-wrap gap-1 mb-2 empty:mb-0">
-          <RowBadges row={row} />
-        </div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <Field label="Quantity">
-            <span className="num">{formatQty(h.quantity)}</span>
-          </Field>
-          <Field label="Weight">
-            <span className="num">{formatPct(h.weightPct, 1, false)}</span>
-          </Field>
-          <Field label={`Price (${h.priceCurrency ?? h.currency})`}>
-            <Money value={h.price} currency={h.priceCurrency ?? h.currency} dp={unitDp(h.price)} />
-          </Field>
-          <Field label={`Avg cost (${h.currency})`}>
-            <Money value={h.avgUnitCost} currency={h.currency} dp={unitDp(h.avgUnitCost)} />
-          </Field>
-          <Field label={`Cost basis (${base})`}>
-            <Money value={h.costBasisBase} currency={base} />
-          </Field>
-          <Field label="P/L %">
-            <Pct value={row.pnlPct} />
-          </Field>
-          <Field label={`Realised P/L (${base})`}>
-            <Money value={h.realizedPnlBase} currency={base} signed colored />
-          </Field>
-          <Field label="Forward yield">
-            <span className="num">
-              {formatPct(row.yieldPct, 2, false)}
-              {row.declaredOnly && row.yieldPct !== null && <span aria-hidden> †</span>}
-            </span>
-          </Field>
-        </dl>
-        {open && (
-          <div id={detailId} className="mt-3 pt-3 border-t border-border">
+      {/* Warnings stay on the collapsed card. A position whose price is missing
+          or whose share count disagrees with the broker must not need a tap to
+          admit it — the whole point of the badge is that you see it while
+          scanning. `empty:hidden` keeps the padding off rows that have none. */}
+      <div className="px-3 pb-3 pt-0 flex flex-wrap gap-1 empty:hidden">
+        <RowBadges row={row} />
+      </div>
+
+      {open && (
+        <div id={detailId} className="px-3 pb-3">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <Field label="Weight">
+              <span className="num">{formatPct(h.weightPct, 1, false)}</span>
+            </Field>
+            <Field label="P/L %">
+              <Pct value={row.pnlPct} />
+            </Field>
+            <Field label={`Price (${h.priceCurrency ?? h.currency})`}>
+              <Money value={h.price} currency={h.priceCurrency ?? h.currency} dp={unitDp(h.price)} />
+            </Field>
+            <Field label={`Avg cost (${h.currency})`}>
+              <Money value={h.avgUnitCost} currency={h.currency} dp={unitDp(h.avgUnitCost)} />
+            </Field>
+            <Field label={`Cost basis (${base})`}>
+              <Money value={h.costBasisBase} currency={base} />
+            </Field>
+            <Field label={`Realised P/L (${base})`}>
+              <Money value={h.realizedPnlBase} currency={base} signed colored />
+            </Field>
+            <Field label="Forward yield">
+              <span className="num">
+                {formatPct(row.yieldPct, 2, false)}
+                {row.declaredOnly && row.yieldPct !== null && <span aria-hidden> †</span>}
+              </span>
+            </Field>
+          </dl>
+          <div className="mt-3 pt-3 border-t border-border">
             <HoldingDetail row={row} base={base} onDisplaySymbol={onDisplaySymbol} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </li>
   )
 }

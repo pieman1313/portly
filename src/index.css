@@ -47,3 +47,37 @@ body {
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+
+/*
+ * Card-by-card scroll snapping, phones only.
+ *
+ * Without it a flick routinely ends with a card half off the top, which reads
+ * as "I lost my place" rather than "I scrolled a bit".
+ *
+ * `proximity`, never `mandatory`. Mandatory snaps every gesture to the nearest
+ * point, which means a card taller than the viewport can never be read to its
+ * end — the browser drags you back to its top the moment you let go. Proximity
+ * only engages when the gesture already finishes near a snap point, so a
+ * deliberate scroll through a long card is left alone.
+ *
+ * Restricted to coarse pointers: on a trackpad, snapping fights the fine
+ * control the user already has.
+ */
+@media (max-width: 639px) and (pointer: coarse) {
+  html {
+    scroll-snap-type: y proximity;
+    /* Clear the sticky title bar, or a snapped card docks underneath it. */
+    scroll-padding-top: calc(3rem + env(safe-area-inset-top) + 0.5rem);
+  }
+
+  main > div > section,
+  main > div > * > section {
+    scroll-snap-align: start;
+    scroll-margin-top: 0.5rem;
+  }
+}
+
+/* Snapping is a movement effect; honour the same preference everything else does. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-snap-type: none; }
+}

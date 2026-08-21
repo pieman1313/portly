@@ -461,6 +461,25 @@ const ROW_HEAD =
 const FOOT_CELL =
   'sticky bottom-0 z-10 bg-surface px-2 py-1.5 text-right border-t border-border'
 
+const FOCUS =
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface'
+
+/**
+ * Months in the phone window.
+ *
+ * A month column has to fit the widest amount it will ever print, and the base
+ * currency decides that: "$1,234" is six characters, but a currency with no
+ * symbol prints its code instead ("1,234 CHF") and needs half a column more. At
+ * 360px the card leaves about 334px once the page and card padding are paid
+ * for, and the holding column takes 104 of it — so four ~49px columns fit an
+ * amount with a symbol, three ~68px ones fit an amount with a code. Nothing is
+ * ellipsised either way; the window shrinks instead.
+ */
+const PHONE_MONTHS = 4
+const PHONE_MONTHS_WIDE = 3
+/** Characters at which an amount stops fitting a quarter of the month strip. */
+const WIDE_AMOUNT = 8
+
 function MatrixCard({
   base,
   net,
@@ -473,13 +492,6 @@ function MatrixCard({
   const scroller = useRef<HTMLDivElement | null>(null)
   const columns = matrix.months.length
 
-  // Land on the most recent months. A user opening this on a phone wants last
-  // month, not the first month they ever held anything.
-  useEffect(() => {
-    const el = scroller.current
-    if (el) el.scrollLeft = el.scrollWidth
-  }, [columns])
-
   let max = 0
   for (const row of matrix.rows) {
     for (const cell of row.cells) if (cell > max) max = cell
@@ -487,6 +499,45 @@ function MatrixCard({
   // Same rule as the chart axis: a portfolio paying tens rather than thousands
   // must not have every cell rounded to a whole unit.
   const dp = max > 0 && max < 100 ? 2 : 0
+
+  const size = Math.max(
+    1,
+    Math.min(
+      columns,
+      widestAmount(matrix, base, dp) >= WIDE_AMOUNT ? PHONE_MONTHS_WIDE : PHONE_MONTHS,
+    ),
+  )
+
+  // Land on the most recent months — on both layouts. A user opening this wants
+  // last month, not the first month they ever held anything.
+  const [start, setStart] = useState(() => Math.max(0, columns - size))
+  useEffect(() => {
+    setStart(Math.max(0, columns - size))
+  }, [columns, size])
+
+  useEffect(() => {
+    const el = scroller.current
+    if (el === null) return
+    const snap = () => {
+      if (el.clientWidth > 0) el.scrollLeft = el.scrollWidth
+    }
+    snap()
+    // Below sm the wide table is display:none, so the call above measured a box
+    // of zero and scrolled nothing. Rotating a phone into landscape crosses the
+    // breakpoint and reveals it; without this the reveal would land on the
+    // oldest month, the one month nobody opened this to see.
+    if (typeof ResizeObserver === 'undefined') return
+    let shown = el.clientWidth > 0
+    const ro = new ResizeObserver(() => {
+      const nowShown = el.clientWidth > 0
+      if (nowShown && !shown) snap()
+      shown = nowShown
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+    }
+  }, [columns])
 
   if (columns === 0 || matrix.rows.length === 0) {
     return (
@@ -500,10 +551,11 @@ function MatrixCard({
 
   return (
     <Card
-      // The matrix owns its own scroller, and it has to: the sticky first column
-      // and header row are positioned against it. Letting the card cap and
-      // scroll as well would stack two scrollers on a phone, so a swipe would
-      // move whichever one the browser guessed at.
+      // From sm up the matrix owns its own scroller, and it has to: the sticky
+      // first column and header row are positioned against it. Letting the card
+      // cap and scroll as well would stack two scrollers, so a swipe would move
+      // whichever one the browser guessed at. Below sm nothing here scrolls at
+      // all and capping the card would put that nested scroller back.
       cap={false}
       title="Payments matrix"
       subtitle={`Each holding, each month, ${net ? 'net of withholding' : 'before withholding'}`}
@@ -513,40 +565,221 @@ function MatrixCard({
         ) : undefined
       }
     >
-      {/* The one table in the app allowed to scroll sideways: it is genuinely
-          2-D, and stacking it into cards would destroy the month comparison
-          that is the whole point of it. */}
-      <div
-        ref={scroller}
-        tabIndex={0}
-        role="region"
-        aria-label="Payments matrix, scrolls horizontally"
-        className="-mx-4 sm:-mx-5 max-h-[70vh] overflow-auto overscroll-x-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-        // overscroll-x-contain, NOT overscroll-contain. Containing BOTH axes stops
-        // a vertical swipe that starts inside the matrix from ever reaching the
-        // page, so on a phone the tab appears frozen until you find a gap beside
-        // the table. Horizontal containment is what we actually want: swiping the
-        // matrix sideways should not also drag the page.
-      >
-        <table className="border-separate border-spacing-0 text-xs">
-          <caption className="px-4 sm:px-5 pb-3 text-left">
-            <span className="sticky left-0 inline-block text-xs text-muted max-w-[min(100%,44rem)]">
-              Dividends paid by holding and month, in {base}, bucketed by pay date. A
-              blank cell means no payment that month; shading shows the relative size and
-              every cell that has one prints its amount. Regular dividends only. Each holding&rsquo;s
-              lifetime total sits under its name.
+      <PhoneMatrix
+        base={base}
+        matrix={matrix}
+        max={max}
+        dp={dp}
+        size={size}
+        start={Math.min(start, Math.max(0, columns - size))}
+        onStart={setStart}
+      />
+
+      {/* From sm up, the one table in the app allowed to scroll sideways: it is
+          genuinely 2-D, and stacking it into cards would destroy the month
+          comparison that is the whole point of it. A mouse and a trackpad both
+          drive a sideways scroller fine, and the width is there to use.
+
+          Below sm it is not rendered at all — display:none takes it out of hit
+          testing, so it cannot capture a gesture, and out of the accessibility
+          tree, so the paged window above is not announced twice. */}
+      <div className="hidden sm:block">
+        <div
+          ref={scroller}
+          tabIndex={0}
+          role="region"
+          aria-label="Payments matrix, scrolls horizontally"
+          className="-mx-4 sm:-mx-5 overflow-auto overscroll-x-contain focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          // overscroll-x-contain, NOT overscroll-contain: containing both axes
+          // stopped a vertical swipe that began inside the matrix from ever
+          // reaching the page. Horizontal containment is the part we want —
+          // dragging the matrix sideways should not also drag the page. It stays
+          // because a trackpad can still chain a two-finger scroll out of here.
+          //
+          // Containment does not fix gesture CAPTURE, which is the other half of
+          // the problem and has no CSS answer at all — see PhoneMatrix.
+        >
+          <table className="border-separate border-spacing-0 text-xs">
+            <caption className="px-4 sm:px-5 pb-3 text-left">
+              <span className="sticky left-0 inline-block text-xs text-muted max-w-[min(100%,44rem)]">
+                <MatrixCaption base={base} />
+              </span>
+            </caption>
+            <thead>
+              <tr>
+                <th
+                  scope="col"
+                  className="sticky left-0 top-0 z-30 bg-surface px-3 py-1.5 text-left text-[11px] font-medium text-muted border-b border-r border-border min-w-[116px]"
+                >
+                  Holding
+                </th>
+                {matrix.months.map((m) => (
+                  <th key={m} scope="col" className={`${HEAD_CELL} min-w-[54px]`}>
+                    <span className="block">{monthAbbr(m)}</span>
+                    <span className="block text-[10px] font-normal opacity-80">
+                      &rsquo;{m.slice(2, 4)}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.rows.map((row) => (
+                <tr key={row.instrumentKey ?? row.label}>
+                  <th scope="row" className={ROW_HEAD}>
+                    <span className="block font-medium text-ink truncate max-w-[104px]">
+                      {row.label}
+                    </span>
+                    <span className="num block text-[11px] font-normal text-muted">
+                      {cellText(row.total, base, dp)}
+                    </span>
+                  </th>
+                  {row.cells.map((value, i) => (
+                    <MatrixCell
+                      key={matrix.months[i] ?? i}
+                      value={value ?? 0}
+                      max={max}
+                      base={base}
+                      dp={dp}
+                    />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th
+                  scope="row"
+                  className="sticky left-0 bottom-0 z-30 bg-surface px-3 py-1.5 text-left align-top border-t border-r border-border"
+                >
+                  <span className="block font-medium text-ink">All holdings</span>
+                  <span className="num block text-[11px] font-normal text-muted">
+                    {cellText(matrix.grandTotal, base, dp)}
+                  </span>
+                </th>
+                {matrix.columnTotals.map((total, i) => (
+                  <td key={matrix.months[i] ?? i} className={`${FOOT_CELL} num whitespace-nowrap`}>
+                    {Math.abs(total) < 0.005 ? '' : cellText(total, base, dp)}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      <HeatLegend base={base} max={max} dp={dp} />
+    </Card>
+  )
+}
+
+/**
+ * The matrix on a phone: a window of months you page through, with no
+ * horizontally scrolling element anywhere in it.
+ *
+ * This is not a styling preference, it is the only fix available. A touch
+ * gesture locks to ONE AXIS as it begins, and a diagonal swipe that starts over
+ * a horizontally scrollable element locks to horizontal — so the page does not
+ * move at all until the finger lifts, and the tab feels frozen. Measured with
+ * synthetic touch drags at 390px, starting in the middle of the old scroller:
+ * pure vertical moved the page 356px, 30 degrees off vertical 310px, 45 degrees
+ * 0px. The 45-degree swipe is not exotic; it is what a thumb does.
+ *
+ * Neither CSS lever helps. `overscroll-x-contain` fixes scroll CHAINING, a
+ * different bug. `touch-action: pan-x pinch-zoom` reads like the fix and is not:
+ * it does not hand the vertical component of the gesture to the page, it removes
+ * vertical panning from the gesture — measured, and every angle then moved the
+ * page 0px. There is no CSS that makes a nested horizontal scroller stop
+ * capturing diagonal gestures, so on a phone there is no nested horizontal
+ * scroller. Buttons move the window instead of the finger.
+ */
+function PhoneMatrix({
+  base,
+  matrix,
+  max,
+  dp,
+  size,
+  start,
+  onStart,
+}: {
+  base: Currency
+  matrix: PaymentsMatrix
+  max: number
+  dp: number
+  size: number
+  start: number
+  onStart: (n: number) => void
+}) {
+  const columns = matrix.months.length
+  const end = Math.min(columns, start + size)
+  const months = matrix.months.slice(start, end)
+  const first = months[0] ?? ''
+  const last = months[months.length - 1] ?? ''
+  const range = rangeLabel(first, last)
+  const paged = columns > size
+
+  return (
+    <div className="sm:hidden">
+      {paged && (
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => onStart(Math.max(0, start - size))}
+            disabled={start === 0}
+            aria-label="Show earlier months"
+            className={`min-h-[44px] min-w-[44px] px-2.5 rounded-lg border border-border text-xs text-ink disabled:opacity-40 ${FOCUS}`}
+          >
+            <span aria-hidden>&lsaquo;</span> Earlier
+          </button>
+          {/* Live, because the buttons change what the table says and a screen
+              reader user has no other way to hear which months arrived. */}
+          <p className="min-w-0 text-center" aria-live="polite">
+            <span className="block text-xs font-medium text-ink">{range}</span>
+            <span className="block text-[11px] text-muted">
+              Showing {months.length} of {columns} months
             </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => onStart(Math.min(Math.max(0, columns - size), start + size))}
+            disabled={end >= columns}
+            aria-label="Show later months"
+            className={`min-h-[44px] min-w-[44px] px-2.5 rounded-lg border border-border text-xs text-ink disabled:opacity-40 ${FOCUS}`}
+          >
+            Later <span aria-hidden>&rsaquo;</span>
+          </button>
+        </div>
+      )}
+
+      {/* Labelled as a group so the pager and the table announce as one widget,
+          and so the label names the months actually on screen. */}
+      <div role="group" aria-label={`Payments matrix, ${range}`}>
+        <table className="w-full border-separate border-spacing-0 text-xs caption-bottom">
+          {/* Underneath, not on top: five lines of explanation between the pager
+              and the grid it pages would put the control an arm's length from
+              its effect. Down here it sits with the heat legend, which is the
+              other thing that explains a cell. */}
+          <caption className="pt-3 text-left text-xs text-muted">
+            <MatrixCaption base={base} windowed={paged} />
           </caption>
           <thead>
             <tr>
+              {/* The number under each holding is its LIFETIME total, not the
+                  total of the months on screen. Beside a four-month window an
+                  unlabelled total would be read as that window's, so the column
+                  says which it is rather than leaving it to the caption. */}
               <th
                 scope="col"
-                className="sticky left-0 top-0 z-30 bg-surface px-3 py-1.5 text-left text-[11px] font-medium text-muted border-b border-r border-border min-w-[116px]"
+                className="w-[104px] px-2 py-1.5 text-left text-[11px] font-medium text-muted border-b border-r border-border"
               >
-                Holding
+                <span className="block">Holding</span>
+                <span className="block text-[10px] font-normal opacity-80">All-time</span>
               </th>
-              {matrix.months.map((m) => (
-                <th key={m} scope="col" className={`${HEAD_CELL} min-w-[54px]`}>
+              {months.map((m) => (
+                <th
+                  key={m}
+                  scope="col"
+                  className="px-1.5 py-1.5 text-right text-[11px] font-medium text-muted border-b border-border"
+                >
                   <span className="block">{monthAbbr(m)}</span>
                   <span className="block text-[10px] font-normal opacity-80">
                     &rsquo;{m.slice(2, 4)}
@@ -558,21 +791,29 @@ function MatrixCard({
           <tbody>
             {matrix.rows.map((row) => (
               <tr key={row.instrumentKey ?? row.label}>
-                <th scope="row" className={ROW_HEAD}>
-                  <span className="block font-medium text-ink truncate max-w-[104px]">
+                <th
+                  scope="row"
+                  className="px-2 py-1.5 text-left align-top border-r border-border"
+                >
+                  <span className="block font-medium text-ink truncate max-w-[96px]">
                     {row.label}
                   </span>
-                  <span className="num block text-[11px] font-normal text-muted">
+                  <span className="num block text-[11px] font-normal text-muted whitespace-nowrap">
                     {cellText(row.total, base, dp)}
                   </span>
                 </th>
-                {row.cells.map((value, i) => (
+                {row.cells.slice(start, end).map((value, i) => (
                   <MatrixCell
-                    key={matrix.months[i] ?? i}
+                    key={months[i] ?? i}
                     value={value ?? 0}
+                    // The ramp is keyed to the all-time maximum, not the window's,
+                    // so a quiet quarter does not repaint itself as a busy one
+                    // when you page onto it — and so the legend below still says
+                    // what the darkest step is worth.
                     max={max}
                     base={base}
                     dp={dp}
+                    pad="px-1.5"
                   />
                 ))}
               </tr>
@@ -582,15 +823,18 @@ function MatrixCard({
             <tr>
               <th
                 scope="row"
-                className="sticky left-0 bottom-0 z-30 bg-surface px-3 py-1.5 text-left align-top border-t border-r border-border"
+                className="px-2 py-1.5 text-left align-top border-t border-r border-border"
               >
                 <span className="block font-medium text-ink">All holdings</span>
-                <span className="num block text-[11px] font-normal text-muted">
+                <span className="num block text-[11px] font-normal text-muted whitespace-nowrap">
                   {cellText(matrix.grandTotal, base, dp)}
                 </span>
               </th>
-              {matrix.columnTotals.map((total, i) => (
-                <td key={matrix.months[i] ?? i} className={`${FOOT_CELL} num whitespace-nowrap`}>
+              {matrix.columnTotals.slice(start, end).map((total, i) => (
+                <td
+                  key={months[i] ?? i}
+                  className="px-1.5 py-1.5 text-right num whitespace-nowrap border-t border-border"
+                >
                   {Math.abs(total) < 0.005 ? '' : cellText(total, base, dp)}
                 </td>
               ))}
@@ -598,9 +842,57 @@ function MatrixCard({
           </tfoot>
         </table>
       </div>
-      <HeatLegend base={base} max={max} dp={dp} />
-    </Card>
+    </div>
   )
+}
+
+/**
+ * One caption, both layouts, so the two tables cannot drift into explaining
+ * themselves differently. `windowed` adds the sentence the phone needs and the
+ * desktop table does not.
+ */
+function MatrixCaption({ base, windowed = false }: { base: Currency; windowed?: boolean }) {
+  return (
+    <>
+      Dividends paid by holding and month, in {base}, bucketed by pay date. A blank cell
+      means no payment that month; shading shows the relative size and every cell that has
+      one prints its amount. Regular dividends only.{' '}
+      {windowed ? (
+        <>
+          The figure under each holding, and under All holdings, is its lifetime total
+          across every month in your statements &mdash; not a total of the months shown.
+        </>
+      ) : (
+        <>Each holding&rsquo;s lifetime total sits under its name.</>
+      )}
+    </>
+  )
+}
+
+/**
+ * Longest amount, in characters, that a month column may have to print. Drives
+ * the phone window size; nothing is allowed to be ellipsised into "$1,2…", so
+ * the count of columns gives way instead.
+ */
+function widestAmount(matrix: PaymentsMatrix, base: Currency, dp: number): number {
+  let widest = 0
+  const measure = (v: number) => {
+    if (Math.abs(v) < 0.005) return
+    const n = cellText(v, base, dp).length
+    if (n > widest) widest = n
+  }
+  for (const row of matrix.rows) for (const cell of row.cells) measure(cell)
+  for (const total of matrix.columnTotals) measure(total)
+  return widest
+}
+
+/** 'Sep – Dec 2025', or 'Nov 2024 – Feb 2025' when the window straddles a year. */
+function rangeLabel(from: string, to: string): string {
+  if (from === '' || to === '') return ''
+  if (from === to) return monthName(to)
+  return from.slice(0, 4) === to.slice(0, 4)
+    ? `${monthAbbr(from)} – ${monthAbbr(to)} ${to.slice(0, 4)}`
+    : `${monthName(from)} – ${monthName(to)}`
 }
 
 /**
@@ -618,20 +910,25 @@ function MatrixCell({
   max,
   base,
   dp,
+  // The phone window has four columns to fit in 230px, so it buys itself a few
+  // pixels here. Padding is the only thing that gives: the amount is never
+  // truncated, wrapped or shrunk.
+  pad = 'px-2',
 }: {
   value: number
   max: number
   base: Currency
   dp: number
+  pad?: string
 }) {
   // Zero stays on the card surface: "no payment" must not read as "a very
   // small payment", which the palest ramp step would imply.
-  if (Math.abs(value) < 0.005) return <td className="px-2 py-1.5" />
+  if (Math.abs(value) < 0.005) return <td className={`${pad} py-1.5`} />
 
   if (value < 0) {
     // A reversal. No heat — the ramp only encodes magnitude of money received.
     return (
-      <td className="px-2 py-1.5 text-right num whitespace-nowrap text-neg">
+      <td className={`${pad} py-1.5 text-right num whitespace-nowrap text-neg`}>
         {cellText(value, base, dp)}
       </td>
     )
@@ -640,7 +937,7 @@ function MatrixCell({
   const background = heatColor(value, max)
   return (
     <td
-      className={`px-2 py-1.5 text-right num whitespace-nowrap ${CELL_INK[background] ?? 'text-ink'}`}
+      className={`${pad} py-1.5 text-right num whitespace-nowrap ${CELL_INK[background] ?? 'text-ink'}`}
       style={{ background }}
     >
       {cellText(value, base, dp)}

@@ -68,6 +68,17 @@ export function App() {
     document.title = active ? `${active.label} · Portly` : 'Portly'
   }, [tab])
 
+  // Land at the top of every tab. Tabs are separate destinations, not one long
+  // document, so carrying the scroll offset across drops the user into the
+  // middle of a screen they have not seen — and with different content heights
+  // the same offset means something different on each one.
+  //
+  // Instant, not smooth: this is a navigation, and animating it would make the
+  // new tab arrive mid-flight.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior })
+  }, [tab])
+
   // Warm the other route chunks once the first screen is painted and the main
   // thread is free, so tab switches feel instant without delaying first paint.
   useEffect(() => {
