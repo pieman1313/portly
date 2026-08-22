@@ -68,6 +68,10 @@ body {
     scroll-snap-type: y proximity;
     /* Clear the sticky title bar, or a snapped card docks underneath it. */
     scroll-padding-top: calc(3rem + env(safe-area-inset-top) + 0.5rem);
+    /* Mirrors main's bottom padding, which clears the fixed tab bar. Without it
+       an end-aligned snap position lands a tab bar's height short of the page
+       end and the last card stays tucked behind the bar. */
+    scroll-padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
 
   /* Every direct child of the tab root is a resting position, not only the
@@ -81,6 +85,31 @@ body {
   main > div > * > section {
     scroll-snap-align: start;
     scroll-margin-top: 0.5rem;
+  }
+
+  /* The BOTTOM has to be somewhere you can stand too, and by default it is not.
+     Aligned to `start` like the rest, the last block's snap position sits above
+     the page's own maximum scroll, so a flick to the end lands there instead of
+     at the end and the final stretch is unreachable. Measured on Forecast: the
+     page rested at 2031 of a possible 2103, permanently 72px short — which is
+     exactly the padding that keeps the last card clear of the tab bar, so the
+     bottom of that card stayed behind the bar however hard you scrolled.
+     Simply dropping the last snap point is worse, not better: on a short page
+     proximity then reaches back to the previous one. Holdings scrolls a total
+     of 158px, and it parked at 17.
+     Aligning the last block to its END, with the scrollport's bottom inset
+     declared, puts that snap position exactly at maximum scroll:
+       Forecast  2875 - (844 - 72) = 2103 = max
+       Holdings   930 - (844 - 72) =  158 = max
+     so the end of the page becomes a snap point rather than a place snapping
+     refuses to go. Sections nested inside that last block are excluded, or they
+     compete with it from a few pixels away. */
+  main > div > :last-child {
+    scroll-snap-align: end;
+  }
+
+  main > div > :last-child section {
+    scroll-snap-align: none;
   }
 
   /* The top of a tab has to be somewhere you can stand. The first block starts

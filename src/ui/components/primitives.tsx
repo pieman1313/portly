@@ -60,7 +60,17 @@ export function Card({
           {right && <div className="shrink-0">{right}</div>}
         </header>
       )}
-      <div className={`min-h-0 px-4 pb-4 sm:px-5 sm:pb-5 ${!(title || right) ? 'pt-4 sm:pt-5' : ''} ${body}`}>
+      {/* `relative` is load-bearing when this body scrolls. An absolutely
+          positioned descendant resolves its containing block to the nearest
+          POSITIONED ancestor, and an overflow box only clips what it contains —
+          so with no positioning here, an `sr-only` live region (Tailwind's
+          sr-only is position:absolute) escapes the card entirely and is laid
+          out against the page. On the Income tab that stretched the document
+          898px past the end of its own content: a screenful of blank space
+          below the last card, scrollable and empty. */}
+      <div
+        className={`relative min-h-0 px-4 pb-4 sm:px-5 sm:pb-5 ${!(title || right) ? 'pt-4 sm:pt-5' : ''} ${body}`}
+      >
         {children}
       </div>
     </section>
