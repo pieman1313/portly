@@ -12,10 +12,13 @@
 import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const URL_BASE = process.argv[2] ?? 'http://localhost:5173/portly/'
-const CSV = process.argv[3] ?? null
+// Resolved to absolute: DOM.setFileInputFiles silently ignores a relative path,
+// so the run completes, every tab renders its empty state, and the only symptom
+// is a suspiciously short page.
+const CSVS = process.argv.slice(3).filter(Boolean).map((c) => resolve(c))
 const OUT = join(process.cwd(), '.context', 'shots')
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
@@ -201,7 +204,7 @@ for (const v of VIEWPORTS) {
   await goto(`${URL_BASE}#/overview`)
 
   // Import on the first pass only; IndexedDB persists across navigations.
-  if (CSV && v === VIEWPORTS[0] && existsSync(CSV)) {
+  if (CSVS.length && v === VIEWPORTS[0]) {
     await goto(`${URL_BASE}#/data`)
     await sleep(800)
     const { root } = await cdp.send('DOM.getDocument')
@@ -209,7 +212,15 @@ for (const v of VIEWPORTS) {
       nodeId: root.nodeId, selector: 'input[type=file]',
     })
     if (!nodeId) throw new Error('no file input found on the Data tab')
-    await cdp.send('DOM.setFileInputFiles', { files: [CSV], nodeId })
+    // Sequentially, as a user would: overlapping statements must dedupe, and
+    // importing them in one call would not exercise that at all.
+    for (const c of CSVS) {
+      if (!existsSync(c)) throw new Error(`statement not found: ${c}`)
+      const { root: r2 } = await cdp.send('DOM.getDocument')
+      const { nodeId: n2 } = await cdp.send('DOM.querySelector', { nodeId: r2.nodeId, selector: 'input[type=file]' })
+      await cdp.send('DOM.setFileInputFiles', { files: [c], nodeId: n2 })
+      await sleep(3500)
+    }
     // Parsing, hashing and deriving a year of statement takes a moment.
     await sleep(4000)
     const imported = await evaluate(

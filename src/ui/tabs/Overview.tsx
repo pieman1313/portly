@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   Badge,
   Card,
@@ -7,7 +7,6 @@ import {
   Money,
   Pct,
   StatTile,
-  Toggle,
   formatMoney,
   formatPct,
 } from '../components/primitives'
@@ -33,19 +32,13 @@ import type { Currency } from '../../domain/types'
  * primitives render an em dash, and the data-quality strip explains why.
  */
 
-type Grouping = 'holding' | 'currency' | 'category'
-
-const GROUPINGS: { value: Grouping; label: string }[] = [
-  { value: 'holding', label: 'Holding' },
-  { value: 'currency', label: 'Currency' },
-  { value: 'category', label: 'Category' },
-]
-
-const GROUP_NOUN: Record<Grouping, string> = {
-  holding: 'holding',
-  currency: 'currency',
-  category: 'asset category',
-}
+/**
+ * The two allocation cuts worth a card. Both are fixed: holding answers "what
+ * am I actually holding", currency answers "what am I exposed to if a rate
+ * moves". Asset category was a third option and never said anything the
+ * by-holding card had not already said, so it went with the group-by control.
+ */
+type AllocateBy = 'holding' | 'currency'
 
 /**
  * Mirrors the donut's own fold so the list beside it names exactly the slices
@@ -70,15 +63,12 @@ const MAX_DIVIDEND_TICKERS = 5
 
 export function Overview() {
   const view = usePortfolio()
-  // Currency, not holding: the fixed donut above already answers "by holding",
-  // so the toggle opens on the view that adds something.
-  const [grouping, setGrouping] = useState<Grouping>('currency')
 
   const { portfolio, yields, forecast, settings } = view
   const base = settings.baseCurrency
 
   const byHolding = useMemo(() => allocate(portfolio.holdings, 'holding'), [portfolio.holdings])
-  const grouped = useMemo(() => allocate(portfolio.holdings, grouping), [portfolio.holdings, grouping])
+  const byCurrency = useMemo(() => allocate(portfolio.holdings, 'currency'), [portfolio.holdings])
   // Grouped, so the bars can be split by holding. The buckets are the same ones
   // `incomeBy` returns, with the per-holding split kept, so every figure below
   // still agrees with the Income tab.
@@ -229,7 +219,14 @@ export function Overview() {
           <StatTile
             label="Invested"
             value={<Money value={investedKnown ? view.investedBase : null} currency={base} dp={0} />}
-            hint={investedKnown ? 'net deposits' : 'no deposits recorded'}
+            // "Deposits − withdrawals", not "net deposits". This is routinely
+            // read as the cost of the portfolio and then found not to match the
+            // cost basis on Holdings, which is a different measurement: money
+            // you put in, versus what the shares you still hold cost. They
+            // diverge by every dividend, interest payment and sale proceed that
+            // got reinvested — real money that bought shares without ever being
+            // a deposit — and the other way by cash left uninvested.
+            hint={investedKnown ? 'deposits − withdrawals' : 'no deposits recorded'}
           />
           <StatTile
             label="Dividends received"
@@ -253,26 +250,10 @@ export function Overview() {
       </Card>
 
       <Card
-        title={`Allocation by ${GROUP_NOUN[grouping]}`}
+        title="Allocation by currency"
         subtitle={`Share of ${base} market value · open, priced positions only`}
       >
-        {/* The kit's Toggle buttons are min-h-[32px], under the 44px touch
-            minimum. Raising them here rather than in primitives.tsx because
-            that file is owned elsewhere; the arbitrary variant only reaches the
-            buttons inside this wrapper. */}
-        <div className="mb-3 [&>div]:flex-wrap [&_button]:min-h-[44px]">
-          <Toggle
-            label="Group by"
-            options={GROUPINGS}
-            value={grouping}
-            onChange={(v) => setGrouping(asGrouping(v))}
-          />
-        </div>
-        <Allocation
-          slices={grouped}
-          currency={base}
-          label={`Allocation by ${GROUP_NOUN[grouping]}`}
-        />
+        <Allocation slices={byCurrency} currency={base} label="Allocation by currency" />
       </Card>
 
       <Card
@@ -348,7 +329,7 @@ interface Slice {
  * against a denominator of this file's own choosing — that keeps every
  * grouping consistent with the by-holding view and with the Holdings tab.
  */
-function allocate(holdings: readonly Holding[], by: Grouping): Slice[] {
+function allocate(holdings: readonly Holding[], by: AllocateBy): Slice[] {
   const groups = new Map<string, { name: string; values: number[]; weights: (number | null)[] }>()
   for (const h of holdings) {
     // Closed positions have no weight, and unpriced ones would be drawn as a
@@ -357,7 +338,7 @@ function allocate(holdings: readonly Holding[], by: Grouping): Slice[] {
     const value = h.marketValueBase
     if (value === null || !(value > 0)) continue
 
-    const key = by === 'currency' ? h.currency : by === 'category' ? h.assetCategory : h.instrumentKey
+    const key = by === 'currency' ? h.currency : h.instrumentKey
     const group = groups.get(key)
     if (group === undefined) {
       groups.set(key, {
@@ -623,8 +604,4 @@ function longDay(date: string): string | null {
   const day = Number(date.slice(8, 10))
   if (name === null || !Number.isInteger(day) || day < 1) return null
   return `${day} ${name} ${date.slice(0, 4)}`
-}
-
-function asGrouping(value: string): Grouping {
-  return value === 'currency' || value === 'category' ? value : 'holding'
 }

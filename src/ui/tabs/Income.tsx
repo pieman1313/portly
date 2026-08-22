@@ -600,10 +600,14 @@ function MatrixCard({
           // the problem and has no CSS answer at all — see PhoneMatrix.
         >
           <table className="border-separate border-spacing-0 text-xs">
-            <caption className="px-4 sm:px-5 pb-3 text-left">
-              <span className="sticky left-0 inline-block text-xs text-muted max-w-[min(100%,44rem)]">
-                <MatrixCaption base={base} />
-              </span>
+            {/* Announced, not printed. A caption is how a screen reader learns
+                what a 2-D grid is before it starts reading cells, so it has to
+                exist — but on the card it was five lines of prose explaining a
+                grid that a sighted user has already read. The two facts that
+                are not self-evident, blank meaning no payment and what the
+                shading is worth, live in the legend under the table. */}
+            <caption className="sr-only">
+              <MatrixCaption base={base} />
             </caption>
             <thead>
               <tr>
@@ -753,12 +757,14 @@ function PhoneMatrix({
       {/* Labelled as a group so the pager and the table announce as one widget,
           and so the label names the months actually on screen. */}
       <div role="group" aria-label={`Payments matrix, ${range}`}>
-        <table className="w-full border-separate border-spacing-0 text-xs caption-bottom">
-          {/* Underneath, not on top: five lines of explanation between the pager
-              and the grid it pages would put the control an arm's length from
-              its effect. Down here it sits with the heat legend, which is the
-              other thing that explains a cell. */}
-          <caption className="pt-3 text-left text-xs text-muted">
+        <table className="w-full border-separate border-spacing-0 text-xs">
+          {/* Same bargain as the wide table: kept for the screen reader, off the
+              card for everyone else. It is the phone that paid most for the
+              prose — the paragraph was taller than the grid it described. The
+              "All-time" label in the corner header carries the one thing a
+              sighted user really does need from it, that the figure under each
+              holding is a lifetime total and not a total of the months shown. */}
+          <caption className="sr-only">
             <MatrixCaption base={base} windowed={paged} />
           </caption>
           <thead>
@@ -945,6 +951,13 @@ function MatrixCell({
   )
 }
 
+/**
+ * The whole visible explanation of the matrix, now that the caption is read
+ * rather than printed. Both halves earn the line they cost: nothing else says
+ * that a blank cell is "no payment" rather than "a payment of zero", and
+ * nothing else says what the darkest shade is worth, which is the only thing
+ * that turns the ramp from decoration into a scale.
+ */
 function HeatLegend({ base, max, dp }: { base: Currency; max: number; dp: number }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
@@ -968,7 +981,15 @@ function HeatLegend({ base, max, dp }: { base: Currency; max: number; dp: number
 // Recent payments
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RECENT_LIMIT = 25
+/**
+ * Rows in the first batch, and in every reveal after it.
+ *
+ * Twelve is a year of a monthly payer, which is the span someone glancing at
+ * this wants. The three test statements come to 38 payments and a longer
+ * history runs into the hundreds; as one list inside a card that caps at 75vh
+ * on a phone, that is a scroll to nowhere.
+ */
+const BATCH = 12
 
 function RecentPayments({
   distributions,
@@ -977,26 +998,51 @@ function RecentPayments({
   distributions: readonly Distribution[]
   symbols: ReadonlyMap<string, string>
 }) {
-  const recent = useMemo(() => {
+  const sorted = useMemo(() => {
     // `id` breaks the tie so two payments on the same day never reorder between
     // renders.
-    const sorted = [...distributions].sort(
+    return [...distributions].sort(
       (a, b) => b.payDate.localeCompare(a.payDate) || a.id.localeCompare(b.id),
     )
-    return sorted.slice(0, RECENT_LIMIT)
   }, [distributions])
 
-  const rows = recent.map((d) => ({
+  // A button, not an IntersectionObserver. This card caps at 75vh and scrolls
+  // its own body on a phone, so an observer would be watching a sentinel inside
+  // a nested scrollport — and it would never say how much is left, which is the
+  // question someone twelve rows into thirty-eight is actually asking.
+  const [shown, setShown] = useState(BATCH)
+
+  // Keyed on the content of the list, not the identity of the array.
+  // `usePortfolio` rebuilds every array it returns whenever anything in the
+  // database changes, so the gross/net toggle and the background quote refresh
+  // both hand this component a brand-new `distributions` — and resetting on
+  // those would snatch rows back from someone mid-read. Measured in the
+  // browser: expanded to 36 of 38, both of those leave it at 36, and retiring
+  // one payment drops it back to 12 of 37, which is the case the reset is for.
+  const signature = `${sorted.length}:${sorted[0]?.id ?? ''}`
+  const [shownFor, setShownFor] = useState(signature)
+  if (shownFor !== signature) {
+    // Adjusted during render rather than in an effect: an effect paints one
+    // frame of the old reveal against the new list first.
+    setShownFor(signature)
+    setShown(BATCH)
+  }
+
+  const rows = sorted.slice(0, shown).map((d) => ({
     d,
     label: labelOf(d, symbols),
     irregular: !isRegular(d.divType, d.description),
   }))
+  // Of the rows on screen: the note explains badges the user can see, so it
+  // must not appear before the badge it explains does.
   const anyIrregular = rows.some((r) => r.irregular)
+  const remaining = sorted.length - rows.length
+  const nextBatch = Math.min(BATCH, remaining)
 
   return (
     <Card
       title="Recent payments"
-      subtitle={`Newest first · showing ${recent.length} of ${distributions.length}`}
+      subtitle={`Newest first · showing ${rows.length} of ${sorted.length}`}
     >
       {/* Below sm this is a stacked list, not a squeezed table: six columns of
           money at 360px is unreadable, and a sideways-scrolling ledger is worse. */}
@@ -1009,8 +1055,8 @@ function RecentPayments({
       <div className="hidden sm:block">
         <table className="w-full text-sm">
           <caption className="sr-only">
-            The {recent.length} most recent dividend payments, newest first, each shown in
-            the currency it was paid in.
+            The {rows.length} most recent of {sorted.length} dividend payments, newest
+            first, each shown in the currency it was paid in.
           </caption>
           <thead>
             <tr className="text-xs text-muted">
@@ -1061,6 +1107,28 @@ function RecentPayments({
           </tbody>
         </table>
       </div>
+
+      {remaining > 0 && (
+        // Full width on a phone, where it is the thumb's target at the foot of
+        // a scrolling card; centred and self-sized from sm up, where a
+        // 1000px-wide button is a target nobody needs and a rule nobody drew.
+        <div className="mt-3 sm:flex sm:justify-center">
+          <button
+            type="button"
+            onClick={() => setShown((n) => n + BATCH)}
+            className={`w-full sm:w-auto min-h-[44px] px-6 rounded-lg border border-border text-sm font-medium text-ink ${FOCUS}`}
+          >
+            Show {nextBatch} more of {remaining}
+          </button>
+        </div>
+      )}
+      {/* Outside the conditional above, and never unmounted: a live region only
+          announces changes to a region that was already there, so folding this
+          in with the button would silence the one reveal that matters most —
+          the last, which takes the button away with it. */}
+      <p aria-live="polite" className="sr-only">
+        Showing {rows.length} of {sorted.length} payments.
+      </p>
 
       {anyIrregular && (
         <p className="text-xs text-muted mt-3">

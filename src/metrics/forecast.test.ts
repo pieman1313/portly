@@ -382,3 +382,28 @@ describe('excluded positions are excluded from income too', () => {
     expect(forecast.totalBase).toBe(500)
   })
 })
+
+describe('rounding residue is not forward income', () => {
+  it('drops a declared accrual worth a cent', () => {
+    // `Accrual.open` keeps the cent a restated Po/Re pair leaves behind, because
+    // IBKR's own Ending Dividend Accruals counts it and the reconciliation has
+    // to agree with the broker. The forecast is a different question: a real
+    // statement produced "August: -$0.01", which is worse than saying nothing.
+    const f = project12Months(
+      [holding('JEPQ', 882)],
+      [
+        accrual('JEPQ', '2026-07-09', '2026-08-07', -0.01, { net: -0.01 }),
+        accrual('JEPQ', '2026-08-13', '2026-09-04', 563.05, { net: 563.05 }),
+      ],
+      [],
+      'USD',
+      [],
+      '2026-08-22',
+      { net: true },
+    )
+    const items = f.months.flatMap((m) => m.items)
+    expect(items).toHaveLength(1)
+    expect(items[0]?.month).toBe('2026-09')
+    expect(f.totalBase).toBeCloseTo(563.05, 2)
+  })
+})

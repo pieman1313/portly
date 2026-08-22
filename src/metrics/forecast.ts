@@ -39,6 +39,12 @@ import { EPS_QTY, isZero, sum } from './money'
  * annual figure exact AND the monthly shape right.
  */
 
+/**
+ * Below this, a declared accrual is rounding residue rather than a payment.
+ * In the accrual's own currency, so it does not drift with the base rate.
+ */
+const FORECAST_MIN = 0.02
+
 export type ForecastBasis = 'declared' | 'estimated'
 
 export interface ForecastItem {
@@ -246,6 +252,13 @@ export function project12Months(
     if (a.supersededAt !== null || !a.open) continue
     if (excluded.has(a.instrumentKey)) continue
     if (a.payDate < anchor || a.payDate > end) continue
+    // Rounding residue is not forward income. `Accrual.open` is an accounting
+    // fact and deliberately keeps the cent that a restated Po/Re pair leaves
+    // behind, because IBKR's own Ending Dividend Accruals counts it and the
+    // reconciliation would otherwise disagree with the broker. A forecast is a
+    // different question, and answering it with "August: -$0.01" is worse than
+    // saying nothing. Presentation filters; the ledger does not.
+    if (Math.abs(a.net) < FORECAST_MIN && Math.abs(a.gross) < FORECAST_MIN) continue
     const slot = indexOfMonth.get(monthKey(a.payDate))
     const bucket = slot === undefined ? undefined : months[slot]
     if (bucket === undefined) continue

@@ -1099,9 +1099,19 @@ export function derive(file: RawFile, rows: readonly RawRow[]): DerivedBundle {
       net: num0(col(br.b, COL.netAmount)),
       codes: col(br.b, COL.code).trim(),
     }
-    // Po and Re net out; the group key deliberately excludes Date, tax and
-    // gross amount so a restated pair still cancels.
-    pushTo(accrGroups, [d.key, exDate, payDate, grossRate, currency].join('|'), row)
+    // Po and Re net out, so the group key carries only what identifies the
+    // PAYMENT: instrument, ex date, pay date, currency. Everything IBKR can
+    // restate is deliberately excluded — date, tax, gross amount, and the
+    // per-share rate.
+    //
+    // The rate has to be excluded too, which is not obvious. A real statement
+    // reverses one NOK dividend at 0.045536 and re-posts it at 0.046153: same
+    // instrument, same ex date, same pay date, same 67 shares, one payment. With
+    // the rate in the key those land in separate groups and never cancel, so a
+    // payment that nets to nothing is reported as +1.88 and -1.88 sitting in the
+    // forecast. Two genuinely different payments sharing an instrument, an ex
+    // date AND a pay date do not occur.
+    pushTo(accrGroups, [d.key, exDate, payDate, currency].join('|'), row)
   }
 
   const accruals: Accrual[] = []

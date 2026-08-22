@@ -374,6 +374,22 @@ describe('accruals', () => {
     })
   })
 
+  it('nets a payment IBKR re-posted at a different per-share rate', async () => {
+    // Real case: one NOK dividend reversed at 0.045536 and re-posted at
+    // 0.046153 — same instrument, same ex date, same pay date, same 67 shares,
+    // one payment. With the rate in the grouping key these landed in separate
+    // groups and never cancelled, so a payment worth nothing showed up in the
+    // forecast as +1.88 and -1.88 against the same holding on the same day.
+    const b = await mini([
+      'Change in Dividend Accruals,Header,Asset Category,Currency,Symbol,Date,Ex Date,Pay Date,Quantity,Tax,Fee,Gross Rate,Gross Amount,Net Amount,Code',
+      'Change in Dividend Accruals,Data,Stocks,USD,NOK,2026-07-28,2026-07-28,2026-08-11,67,1.07,0,0.045536,3.05,1.88,Po',
+      'Change in Dividend Accruals,Data,Stocks,USD,NOK,2026-08-11,2026-07-28,2026-08-11,67,-1.07,0,0.046153,-3.05,-1.88,Re',
+    ])
+    expect(b.accruals).toHaveLength(1)
+    expect(b.accruals[0]?.net).toBeCloseTo(0, 6)
+    expect(b.accruals[0]?.open).toBe(false)
+  })
+
   it('keeps a restated residual open, because the broker counts it too', async () => {
     // A restated Po/Re pair leaves 0.10 behind on an already-paid dividend.
     // It is still part of the accrual BALANCE, so `open` must stay true —

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useMarketDataSync } from './ui/useMarketDataSync'
 
 /*
@@ -57,11 +57,172 @@ function useHashRoute(): [TabId, (t: TabId) => void] {
   return [tab, go]
 }
 
+/** Travel before a drag is read as navigation rather than a stray finger. */
+const SWIPE_MIN_X = 60
+/** How far x has to dominate y before the gesture counts as horizontal. */
+const SWIPE_AXIS_RATIO = 1.5
+/** Vertical travel after which the gesture is a scroll and can never be a swipe. */
+const SWIPE_VERTICAL_LOCK = 12
+
+/**
+ * Does anything under the finger still have room to scroll sideways?
+ *
+ * Answered by measurement rather than by selector. The payments matrix is the
+ * one horizontal scroller in the app today, but the next wide table someone
+ * adds has to be safe without them knowing this file exists.
+ *
+ * Both directions are reported because the caller does not yet know which way
+ * the finger will travel, and this has to be sampled at touchstart: ask again
+ * at touchend and the scroller has already been dragged to its end, at which
+ * point it looks exactly like an element that never wanted the gesture.
+ */
+function horizontalRoom(from: EventTarget | null): { back: boolean; forward: boolean } {
+  let back = false
+  let forward = false
+  for (
+    let el = from instanceof Element ? from : null;
+    el !== null;
+    el = el.parentElement
+  ) {
+    const max = el.scrollWidth - el.clientWidth
+    if (max <= 1) continue
+    if (!/auto|scroll|overlay/.test(getComputedStyle(el).overflowX)) continue
+    const left = el.scrollLeft
+    if (left > 1) back = true
+    if (left < max - 1) forward = true
+  }
+  return { back, forward }
+}
+
+/**
+ * Swipe left or right to move between tabs, on touch input only.
+ *
+ * The whole difficulty is knowing when the gesture is NOT ours. A horizontal
+ * drag belongs to the content under it whenever that content can still scroll
+ * the way the finger is going, and it belongs to the control under it whenever
+ * dragging that control means something — a range thumb, a text selection. Only
+ * what is left over is navigation.
+ *
+ * Buttons and links are deliberately not excluded: a phone's card lists are
+ * mostly tappable rows, and refusing to swipe from one would make the gesture
+ * work nowhere useful. Their taps survive because the browser cancels a tap
+ * once the touch moves past its own slop, long before our 60px threshold.
+ *
+ * No transition: a tab switch is a navigation, and the app already jumps to the
+ * top of the new tab instantly for exactly that reason. Nothing here animates,
+ * so there is nothing for `prefers-reduced-motion` to turn off.
+ */
+function useTabSwipe(tab: TabId, go: (t: TabId) => void) {
+  // Listeners are bound once. The current tab and `go` change on every render —
+  // re-subscribing on each one would rebind the whole set mid-gesture.
+  const nav = useRef({ tab, go })
+  useEffect(() => {
+    nav.current = { tab, go }
+  })
+
+  useEffect(() => {
+    type Gesture = {
+      x0: number
+      y0: number
+      room: ReturnType<typeof horizontalRoom>
+      /** Set once the drag reads as a scroll; from then on it can never navigate. */
+      scrolling: boolean
+    }
+    let gesture: Gesture | null = null
+
+    const onStart = (e: TouchEvent) => {
+      // A second finger means a pinch. Abandon whatever was in flight rather
+      // than measuring from one finger and ending on another.
+      if (e.touches.length !== 1) {
+        gesture = null
+        return
+      }
+      const target = e.target instanceof Element ? e.target : null
+      if (
+        target?.closest(
+          'input, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="slider"]',
+        )
+      ) {
+        gesture = null
+        return
+      }
+      const touch = e.touches[0]
+      if (!touch) return
+      gesture = {
+        x0: touch.clientX,
+        y0: touch.clientY,
+        room: horizontalRoom(target),
+        scrolling: false,
+      }
+    }
+
+    const onMove = (e: TouchEvent) => {
+      if (gesture === null) return
+      if (e.touches.length !== 1) {
+        gesture = null
+        return
+      }
+      const touch = e.touches[0]
+      if (!touch) return
+      const dy = touch.clientY - gesture.y0
+      const dx = touch.clientX - gesture.x0
+      // Lock to vertical as soon as the gesture reads as a scroll, so a long
+      // read that drifts sideways on the way up never lands on another tab.
+      if (Math.abs(dy) > SWIPE_VERTICAL_LOCK && Math.abs(dy) > Math.abs(dx)) {
+        gesture.scrolling = true
+      }
+    }
+
+    const onEnd = (e: TouchEvent) => {
+      const g = gesture
+      gesture = null
+      if (g === null || g.scrolling) return
+      const touch = e.changedTouches[0]
+      if (!touch) return
+
+      const dx = touch.clientX - g.x0
+      const dy = touch.clientY - g.y0
+      if (Math.abs(dx) < SWIPE_MIN_X) return
+      if (Math.abs(dx) <= SWIPE_AXIS_RATIO * Math.abs(dy)) return
+      // Dragging left asks for content on the right, which is a scroller's
+      // forward direction. If one under the finger still had room that way, the
+      // gesture was scrolling it, not addressing the tab bar.
+      if (dx < 0 ? g.room.forward : g.room.back) return
+
+      const here = TABS.findIndex((t) => t.id === nav.current.tab)
+      // No wrap. Running off either end should feel like a wall, not a
+      // carousel — five tabs are a row, not a loop.
+      const next = TABS[dx < 0 ? here + 1 : here - 1]
+      if (next) nav.current.go(next.id)
+    }
+
+    const onCancel = () => {
+      gesture = null
+    }
+
+    // Passive throughout: nothing here calls preventDefault, and a non-passive
+    // touchmove listener would make every scroll on the page wait for it.
+    const opts = { passive: true } as const
+    window.addEventListener('touchstart', onStart, opts)
+    window.addEventListener('touchmove', onMove, opts)
+    window.addEventListener('touchend', onEnd, opts)
+    window.addEventListener('touchcancel', onCancel, opts)
+    return () => {
+      window.removeEventListener('touchstart', onStart)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onEnd)
+      window.removeEventListener('touchcancel', onCancel)
+    }
+  }, [])
+}
+
 export function App() {
   const [tab, go] = useHashRoute()
   // Mounted once, here, so prices refresh on open and after every import
   // regardless of which tab the user happens to be looking at.
   const sync = useMarketDataSync()
+
+  useTabSwipe(tab, go)
 
   useEffect(() => {
     const active = TABS.find((t) => t.id === tab)

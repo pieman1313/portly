@@ -70,10 +70,28 @@ body {
     scroll-padding-top: calc(3rem + env(safe-area-inset-top) + 0.5rem);
   }
 
-  main > div > section,
+  /* Every direct child of the tab root is a resting position, not only the
+     <section> cards. Holdings opens with a grid of KPI tiles and Income with a
+     filter bar, neither of which is a section — so the nearest snap point to a
+     freshly opened tab was the first card BELOW them, and proximity dragged the
+     page down and swallowed the tiles as soon as a finger touched the screen.
+     Snapping on the children rather than on a tag keeps that from recurring the
+     next time a tab opens with something other than a card. */
+  main > div > *,
   main > div > * > section {
     scroll-snap-align: start;
     scroll-margin-top: 0.5rem;
+  }
+
+  /* The top of a tab has to be somewhere you can stand. The first block starts
+     just below the sticky bar, which puts its natural snap position a few
+     pixels above zero — close enough that a subpixel layout could push it below
+     and make the top of the page a non-position again. Widening its scroll
+     margin drives that position firmly past the start of the range, where the
+     browser clamps it to exactly 0. Nothing is above it to reveal, so the extra
+     margin costs nothing. */
+  main > div > :first-child {
+    scroll-margin-top: 1.5rem;
   }
 }
 
