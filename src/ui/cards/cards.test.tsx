@@ -162,14 +162,34 @@ const arrangeButtons = (): HTMLElement[] =>
  * the one readiness signal that means "this tab is past its skeleton and its
  * empty state" on all five tabs.
  */
+/**
+ * Testing Library's default `waitFor` budget is 1000ms, and that is not enough
+ * here — not because anything is slow but because of what is being waited for:
+ * a lazily imported route chunk, then fake-indexeddb, then a Dexie liveQuery,
+ * then the derivation that liveQuery feeds. This file runs in about 7s on a
+ * laptop and took 14s on the CI runner, and at 1s the first test in the file
+ * (which pays every route chunk's import cost) failed there while passing
+ * locally every time. Reproduced by starving this budget to 30ms, which
+ * produces the identical "Unable to find role=button" error.
+ *
+ * So: a budget with real headroom over the observed 2x, and `testTimeout` in
+ * vite.config.ts raised to match, because the five-tab loop below spends this
+ * wait five times in one test.
+ */
+const READY_TIMEOUT = 5000
+
 async function ready(tab: TabId): Promise<void> {
-  await waitFor(() => expect(arrangeButtons().length).toBeGreaterThan(0))
+  await waitFor(() => expect(arrangeButtons().length).toBeGreaterThan(0), {
+    timeout: READY_TIMEOUT,
+  })
   if (tab === 'income') {
     // Income declares its FX warning from the first liveQuery emission, before
     // the statement's 794 derived FX rates have loaded, and drops it once they
     // have. Its card SET is only stable once that note has gone, and a test
     // that read the order in between would be reading a different tab.
-    await waitFor(() => expect(screen.queryByText(/could not be converted/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/could not be converted/)).toBeNull(), {
+      timeout: READY_TIMEOUT,
+    })
   }
 }
 
@@ -313,8 +333,11 @@ describe('scroll-snap structure', () => {
     // every card in the app. Nothing else guards that, and it is invisible on a
     // laptop.
     for (const tab of TAB_IDS) {
-      const { unmount } = renderTab(<App />)
+      // Hash first, then mount — the order `show()` uses. Mounting first makes
+      // the route depend on a `hashchange` that does not fire at all when the
+      // hash already holds the value being assigned.
       window.location.hash = `#/${tab}`
+      const { unmount } = renderTab(<App />)
       await ready(tab)
       const main = document.querySelector('main')
       expect(main).not.toBeNull()
@@ -818,8 +841,11 @@ describe('persistence', () => {
   it('writes nothing until the user changes something', async () => {
     expect(STORE_KEY).toBe('portly.cards.v1')
     for (const tab of TAB_IDS) {
-      const { unmount } = renderTab(<App />)
+      // Hash first, then mount — the order `show()` uses. Mounting first makes
+      // the route depend on a `hashchange` that does not fire at all when the
+      // hash already holds the value being assigned.
       window.location.hash = `#/${tab}`
+      const { unmount } = renderTab(<App />)
       await ready(tab)
       unmount()
     }

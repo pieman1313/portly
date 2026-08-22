@@ -39,6 +39,14 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ['./src/test/setup.ts'],
+    // The default 5s is a laptop's budget. A UI test here mounts the whole app,
+    // waits on a lazily imported route chunk, fake-indexeddb and a Dexie
+    // liveQuery, and one of them does that for all five tabs in a single test —
+    // and the CI runner measured about twice this machine's wall clock. A deploy
+    // is gated on this suite, so the timeout has to have headroom over the
+    // slowest runner rather than over the fastest.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     environment: 'node',
     // Only the UI tests pay for a DOM; the 400+ pure tests stay on node.
