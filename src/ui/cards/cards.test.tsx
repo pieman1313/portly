@@ -1100,6 +1100,69 @@ describe('review regressions', () => {
     expect(liveText()).toMatch(/cancelled/)
   })
 
+  it('centres a collapsed header instead of stacking padding on the 44px chevron', async () => {
+    // Reported from a screenshot: a collapsed card looked like it had an empty
+    // second row under the title. Cause: `items-start` plus pt-4/pb-4 around a
+    // 44px control, so a 20px title sat at the top of a 70px box. Measured in
+    // real Chrome after the fix: 58px, title exactly on the chevron's axis.
+    // jsdom cannot measure, so the class contract is what is pinned here.
+    await show('overview')
+    const toggle = screen.getByRole('button', { name: 'Collapse Allocation by holding' })
+    const header = toggle.closest('header')
+    if (header === null) throw new Error('no header')
+    expect(header.className).toContain('items-start')
+    expect(toggle.className).toContain('-mt-2')
+
+    fireEvent.click(toggle)
+    const collapsed = screen
+      .getByRole('button', { name: 'Expand Allocation by holding' })
+      .closest('header')
+    if (collapsed === null) throw new Error('no collapsed header')
+    expect(collapsed.className).toContain('items-center')
+    expect(collapsed.className).not.toContain('items-start')
+    // The padding that produced the phantom row.
+    expect(collapsed.className).not.toMatch(/(^|\s)pt-4/)
+    expect(collapsed.className).not.toMatch(/(^|\s)pb-4/)
+    // And the negative pull that only makes sense against a top-aligned row.
+    expect(
+      screen.getByRole('button', { name: 'Expand Allocation by holding' }).className,
+    ).not.toContain('-mt-2')
+  })
+
+  it('names the collapse control with the title on screen, not the sheet label', async () => {
+    // The control is icon-only beside a visible title, so that title is its
+    // label: a spoken name that is not the words next to it cannot be operated
+    // by voice and trips WCAG 2.5.3. The policy label stays short for the
+    // sheet's narrow rows, so on three cards the two genuinely differ.
+    await show('forecast')
+    // Policy label is "Projected by month"; the card says this.
+    expect(screen.getByRole('button', { name: 'Collapse Projected income by month' })).toBeDefined()
+
+    // And the sheet still uses the short label for its own row.
+    await openSheet()
+    expect(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Projected by month' }),
+    ).toBeDefined()
+    expectNoPoison()
+  })
+
+  it('tracks a title that changes, so the name follows the gross/net toggle', async () => {
+    // Income's chart is titled "Net dividends paid" or "Gross dividends paid"
+    // depending on the basis toggle. A fixed label can never match both.
+    await show('income')
+    expect(screen.getByRole('button', { name: /^Collapse (Net|Gross) dividends paid$/ })).toBeDefined()
+    const before = screen
+      .getByRole('button', { name: /^Collapse (Net|Gross) dividends paid$/ })
+      .textContent
+    fireEvent.click(screen.getByRole('button', { name: 'Gross' }))
+    await waitFor(() => {
+      const after = screen
+        .getByRole('button', { name: /^Collapse (Net|Gross) dividends paid$/ })
+        .textContent
+      expect(after).not.toBe(before)
+    })
+  })
+
   it('marks a picked-up row with an ARIA state and a word, not only a colour', async () => {
     // The keyboard path applies no transform and no scale, so an accent border
     // and a shadow on a near-black surface were the entire cue — and the house

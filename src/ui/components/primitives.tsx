@@ -72,6 +72,25 @@ export function Card({
 
   const header = title || right || showChevron
 
+  /*
+   * What the collapse control is CALLED.
+   *
+   * It is icon-only and sits immediately beside a visible title, so that title
+   * is its de-facto label — and a control whose spoken name is not the words
+   * next to it cannot be operated by voice ("tap Projected income by month"
+   * matched nothing) and trips WCAG 2.5.3. The policy label is deliberately
+   * short, because it also fills a 194px row in the arrange sheet, so the two
+   * do diverge: "Projected by month" against "Projected income by month",
+   * "Import" against "Import an IBKR Activity Statement".
+   *
+   * Where a card renders a plain-string title, that string wins. On Income it
+   * also has to: the chart's title is "Net dividends paid" or "Gross dividends
+   * paid" depending on the basis toggle, which no fixed label can track. A
+   * ReactNode title falls back to the label, which is why the fallback exists
+   * rather than being a formality.
+   */
+  const spoken = typeof title === 'string' && title.trim() !== '' ? title : chrome?.label
+
   return (
     <section
       // Collapsed, there is no body to cap, and leaving the cap on would let a
@@ -83,14 +102,26 @@ export function Card({
         // underneath. Matches the card's own background so rows slide behind it
         // rather than showing through.
         //
-        // Collapsed, the header IS the card, so it takes the full radius and its
-        // own bottom padding. Without that the bottom corners come out square:
-        // the radius lives on the section, which has no `overflow-hidden`, so
-        // the header's own background paints over the corner.
+        // Collapsed, the header IS the card, so it takes the full radius —
+        // without that the bottom corners come out square, because the radius
+        // lives on the section, which has no `overflow-hidden`, so the header's
+        // own background paints over the corner.
+        //
+        // It also switches to `items-center` and to padding that does not stack
+        // on top of the chevron. Expanded, the text block is two lines and sets
+        // the height, so a 44px control aligned to the top sits inside it. Once
+        // the subtitle goes the title is a single 20px line, the 44px chevron
+        // becomes the tallest thing in the row, and `pt-4`/`pb-4` were being
+        // added to THAT — 70px of card for one line of text, with the title
+        // pinned to the top and the slack below it reading as an empty second
+        // row. Centred, with the padding down to 6px, the touch target defines
+        // the height: 56px, the same rhythm as the arrange sheet's rows.
         <header
-          className={`flex items-start justify-between gap-3 shrink-0 bg-surface px-4 pt-4 sm:px-5 sm:pt-5 ${
-            collapsed ? 'rounded-xl pb-4 sm:pb-5' : 'rounded-t-xl pb-3'
-          }`}
+          className={
+            collapsed
+              ? 'flex items-center justify-between gap-3 shrink-0 bg-surface rounded-xl px-4 sm:px-5 py-1.5'
+              : 'flex items-start justify-between gap-3 shrink-0 bg-surface rounded-t-xl px-4 pt-4 pb-3 sm:px-5 sm:pt-5'
+          }
         >
           <div className="min-w-0 flex-1">
             {title && <h2 className="text-sm font-semibold text-ink truncate">{title}</h2>}
@@ -106,7 +137,7 @@ export function Card({
             // allowed to give way, while the chevron keeps its full touch
             // target. A control the user needs to reach should not be the thing
             // that shrinks.
-            <div className="min-w-0 flex items-start gap-1">
+            <div className={`min-w-0 flex gap-1 ${collapsed ? 'items-center' : 'items-start'}`}>
               {right && <div className="min-w-0 truncate">{right}</div>}
               {showChevron && chrome !== null && (
                 <button
@@ -122,10 +153,15 @@ export function Card({
                   // containing block here. Tailwind's sr-only is
                   // position:absolute, and one laid out against the page
                   // stretched the Income document 898px past its own content.
-                  className="relative -mr-2 -mt-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-muted hover:text-ink disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  className={`relative -mr-2 ${
+                    // Pulls a top-aligned control up to the title's cap height.
+                    // Meaningless once the row is centred, and it would push the
+                    // chevron off the row's axis.
+                    collapsed ? '' : '-mt-2'
+                  } min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-muted hover:text-ink disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}
                 >
                   <span className="sr-only">
-                    {collapsed ? 'Expand' : 'Collapse'} {chrome.label}
+                    {collapsed ? 'Expand' : 'Collapse'} {spoken}
                     {collapseLock === undefined ? '' : `. ${collapseLock}`}
                   </span>
                   <ChevronIcon open={!collapsed} />
