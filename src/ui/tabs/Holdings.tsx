@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { NoData } from '../components/NoData'
 import { CardStack } from '../cards/CardStack'
 import { card } from '../cards/useCardLayout'
 import type { CardSpec } from '../cards/layout'
@@ -211,20 +212,9 @@ export function Holdings() {
 
   if (!view.hasData) {
     return (
-      <EmptyState
-        title="No positions yet"
-        action={
-          <a
-            href="#/data"
-            className="inline-flex items-center justify-center h-11 px-4 rounded-lg bg-accent text-white text-sm"
-          >
-            Go to Data
-          </a>
-        }
-      >
-        Import an Interactive Brokers Activity Statement on the Data tab and every position,
-        lot and dividend in it shows up here.
-      </EmptyState>
+      <NoData title="No positions yet">
+        Add an IBKR Activity Statement and every position, lot and dividend in it shows up here.
+      </NoData>
     )
   }
 

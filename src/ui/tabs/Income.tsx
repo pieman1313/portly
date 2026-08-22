@@ -20,6 +20,7 @@ import {
   Toggle,
   formatMoney,
 } from '../components/primitives'
+import { NoData } from '../components/NoData'
 import { CardStack } from '../cards/CardStack'
 import { card } from '../cards/useCardLayout'
 import type { CardSpec } from '../cards/layout'
@@ -140,22 +141,10 @@ export function Income() {
 
   if (!view.hasData) {
     return (
-      <Card title="Dividends paid">
-        <EmptyState
-          title="No statements imported yet"
-          action={
-            <a
-              href="#/data"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-accent text-white text-sm font-medium focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            >
-              Go to the Data tab
-            </a>
-          }
-        >
-          Import an Interactive Brokers Activity Statement CSV and every dividend in it
-          shows up here, bucketed by the month the cash actually arrived.
-        </EmptyState>
-      </Card>
+      <NoData title="No dividends yet">
+        Add an IBKR Activity Statement and every payment shows up here, bucketed by the month
+        the cash actually arrived.
+      </NoData>
     )
   }
 

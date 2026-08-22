@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useMarketDataSync } from './ui/useMarketDataSync'
 import { ArrangeButton } from './ui/cards/ArrangeButton'
+import { Logo } from './ui/components/Logo'
 import { CardsProvider, useCards } from './ui/cards/useCardLayout'
 
 /*
@@ -297,7 +298,10 @@ function AppShell() {
       {/* Desktop / tablet navigation */}
       <header className="hidden sm:block sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-6">
-          <span className="font-semibold tracking-tight">Portly</span>
+          <span className="flex items-center gap-2 font-semibold tracking-tight">
+            <Logo size={22} />
+            Portly
+          </span>
           <nav aria-label="Sections" className="flex items-center gap-1">
             {TABS.map((t) => (
               <button
@@ -321,8 +325,9 @@ function AppShell() {
       {/* Mobile title bar */}
       <header className="sm:hidden sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
         <div className="h-12 px-4 flex items-center gap-3">
-          <span className="font-semibold tracking-tight">
-            {TABS.find((t) => t.id === tab)?.label ?? 'Portly'}
+          <span className="flex items-center gap-2 min-w-0 font-semibold tracking-tight">
+            <Logo size={20} />
+            <span className="truncate">{TABS.find((t) => t.id === tab)?.label ?? 'Portly'}</span>
           </span>
           <SyncStatus sync={sync} className="ml-auto" />
           <ArrangeButton tab={tab} />
@@ -332,7 +337,12 @@ function AppShell() {
       <main
         id="main"
         // Bottom padding clears the mobile tab bar plus the iOS home indicator.
-        className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-4 py-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-8"
+        // `flex flex-col` so a single child can ask to fill the remaining
+        // height — the no-data hero centres itself in whatever is left. It
+        // changes nothing for a tab with content: a column flex container with
+        // one auto-height child lays out the same as a block, and the snap
+        // selectors are all keyed on `main > div > *`, which is untouched.
+        className="flex-1 flex flex-col w-full max-w-6xl mx-auto px-3 sm:px-4 py-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-8"
       >
         <Suspense fallback={<TabFallback />}>
           <TabContent tab={tab} />

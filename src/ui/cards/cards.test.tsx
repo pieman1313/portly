@@ -6,6 +6,7 @@ import { installBrowserStubs, renderTab } from '../../test/render'
 import { importStatementText } from '../../db/import'
 import { db } from '../../db/schema'
 import { STORE_KEY } from './layout'
+import { Card } from '../components/primitives'
 import { App } from '../../App'
 import type { TabId } from '../../App'
 
@@ -647,20 +648,35 @@ describe('collapse', () => {
     }
   })
 
-  it('offers no collapse control on a Card rendered outside a CardStack', async () => {
-    // Guards the SlotContext default. Every tab's loading skeleton and empty
-    // state renders bare Cards, and there is nothing to arrange on a screen with
-    // no data on it.
+  it('offers no collapse control on a Card rendered outside a CardStack', () => {
+    // Guards the SlotContext default directly, on the component rather than
+    // through whichever screen happens to render a bare Card this month. It used
+    // to go via Income's no-data state, which was a titled Card until that
+    // screen became the NoData hero — the invariant did not change, only the
+    // route to it, which is exactly why it is asserted at the source now.
+    render(
+      <Card title="Loose card" subtitle="Rendered with no provider above it">
+        <p>body</p>
+      </Card>,
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'Loose card' })).toBeDefined()
+    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(screen.getByText('body')).toBeDefined()
+  })
+
+  it('offers nothing to arrange on a tab with no data', async () => {
+    // The other half: no stack is mounted, so the header button is absent rather
+    // than present and dead, and the hero carries no card chrome at all.
     await wipe()
     window.location.hash = '#/income'
     renderTab(<App />)
-    await waitFor(() => expect(pageText()).toMatch(/No statements imported yet/))
-    const empty = screen.getByRole('heading', { level: 2, name: 'Dividends paid' }).closest('section')
-    expect(empty).not.toBeNull()
-    expect(empty?.querySelector('header')).not.toBeNull()
+    await waitFor(() => expect(pageText()).toMatch(/No dividends yet/), {
+      timeout: READY_TIMEOUT,
+    })
     expect(screen.queryAllByRole('button', { name: /^(Collapse|Expand) / })).toEqual([])
-    // And no way in either: the header button is absent, not present and dead.
     expect(screen.queryAllByRole('button', { name: /^Arrange cards/ })).toEqual([])
+    // The one thing it does offer.
+    expect(screen.getByRole('link', { name: /Add data/ })).toBeDefined()
   })
 
   it('names the card in the collapse control', async () => {

@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import {
   Badge,
   Card,
-  EmptyState,
   Hero,
   Money,
   Pct,
@@ -11,6 +10,7 @@ import {
   formatPct,
 } from '../components/primitives'
 import { Columns, Donut, foldStack, seriesColor } from '../components/charts'
+import { NoData } from '../components/NoData'
 import { CardStack } from '../cards/CardStack'
 import { card } from '../cards/useCardLayout'
 import type { CardSpec } from '../cards/layout'
@@ -135,24 +135,10 @@ export function Overview() {
 
   if (!view.hasData) {
     return (
-      <>
-        <h1 className="sr-only">Overview</h1>
-        <EmptyState
-          title="No statements imported yet"
-          action={
-            <a
-              href="#/data"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-accent text-white text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-ink"
-            >
-              Go to the Data tab
-            </a>
-          }
-        >
-          Import an Interactive Brokers Activity Statement CSV and Portly works out what the
-          portfolio is worth, what it has paid you and what the next twelve months should pay.
-          Everything stays on this device.
-        </EmptyState>
-      </>
+      <NoData title="Nothing imported yet">
+        Add an IBKR Activity Statement and Portly works out what the portfolio is worth, what it
+        has paid you, and the year ahead.
+      </NoData>
     )
   }
 

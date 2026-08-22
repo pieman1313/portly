@@ -12,6 +12,7 @@ import {
   Money,
   StatTile,
 } from '../components/primitives'
+import { NoData } from '../components/NoData'
 import { CardStack } from '../cards/CardStack'
 import { card } from '../cards/useCardLayout'
 import type { CardSpec } from '../cards/layout'
@@ -150,22 +151,10 @@ export function Forecast() {
 
   if (!view.hasData) {
     return (
-      <Card title="Forecast">
-        <EmptyState
-          title="No forecast yet"
-          action={
-            <a
-              href="#/data"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-accent text-white text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              Import a statement
-            </a>
-          }
-        >
-          Portly projects twelve months of dividend income from your open positions and any declared
-          accruals. Import an IBKR Activity Statement on the Data tab to start.
-        </EmptyState>
-      </Card>
+      <NoData title="Nothing to project yet">
+        Add an IBKR Activity Statement and Portly projects the next twelve months of income from
+        your positions and declared accruals.
+      </NoData>
     )
   }
 

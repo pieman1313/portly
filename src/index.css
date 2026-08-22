@@ -48,6 +48,14 @@ body {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
 
+/* The empty state's line draws itself in. The resting state is dashoffset 0, so
+   the reduced-motion block above (which cuts every animation to 0.01ms) leaves
+   the drawing finished rather than half-drawn. */
+@keyframes nd-draw {
+  from { stroke-dashoffset: 400; }
+  to   { stroke-dashoffset: 0; }
+}
+
 /* The arrange sheet's entrance. A transform, not a height or a top: a sheet
    that animates its box makes the browser re-lay-out the list behind it on
    every frame. The prefers-reduced-motion block above already zeroes it. */
