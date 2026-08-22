@@ -23,6 +23,12 @@ you already have.
 | **Holdings** | Every position: shares, cost basis, value, weight, unrealised and realised P/L |
 | **Data** | Import, reconciliation report, market-data controls, backup, settings |
 
+Every card on every tab can be collapsed, hidden or reordered — the arrange
+sheet on each tab header does all three, and "Reset this tab" puts one back to
+its shipped layout. The arrangement is per-device, kept in `localStorage` under
+`portly.cards.v1`, and is deliberately left out of the encrypted backup: a
+phone's card order has no business landing on a laptop alongside the figures.
+
 Imports are **additive and idempotent**. Overlapping statements are the normal
 case — import a monthly statement and then a full-year one and nothing is
 double-counted.

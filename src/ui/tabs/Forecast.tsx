@@ -12,6 +12,9 @@ import {
   Money,
   StatTile,
 } from '../components/primitives'
+import { CardStack } from '../cards/CardStack'
+import { card } from '../cards/useCardLayout'
+import type { CardSpec } from '../cards/layout'
 import { usePortfolio } from '../usePortfolio'
 
 /**
@@ -220,8 +223,25 @@ export function Forecast() {
   const heroValue = noDistributors ? 0 : projected && valued ? forecast.totalBase : null
   const window = `${monthLong(forecast.anchor)} – ${monthLong(forecast.end)}`
 
-  return (
-    <div className="space-y-4">
+  /*
+   * The two-column pair that used to sit at the bottom of this tab — a
+   * `lg:grid-cols-2` grid holding Month by month, Next payments and Income
+   * concentration — is gone, and Forecast is now single-column like the other
+   * four tabs. That cost a little desktop density and bought three things.
+   *
+   * The first is that the bottom third stops being ONE end-aligned snap point.
+   * `main > div > :last-child section` in index.css sets
+   * `scroll-snap-align: none`, and with three real cards nested inside that
+   * last child it was zeroing all three of them at once — so on a phone the
+   * whole lower third of Forecast had a single resting position, and you could
+   * not stop on Next payments at all. The second is that the three become
+   * individually collapsible and re-orderable, which a card inside a grid
+   * track cannot be. The third is that "every card is a direct child of the tab
+   * root" becomes an invariant with no exceptions left, which is exactly what
+   * the snap regression test asserts.
+   */
+  const cards: CardSpec[] = [
+    card('forecast-hero', () => (
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <Hero label="Projected income · next 12 months" value={heroValue} currency={base} />
@@ -240,7 +260,8 @@ export function Forecast() {
           )}
         </p>
       </Card>
-
+    )),
+    card('forecast-split', () => (
       <div className="grid grid-cols-2 gap-3">
         <StatTile
           label="Declared"
@@ -259,7 +280,8 @@ export function Forecast() {
           }
         />
       </div>
-
+    )),
+    card('forecast-coverage', () => (
       <CoverageNote
         coverage={coverage}
         declared={declaredValue}
@@ -271,7 +293,8 @@ export function Forecast() {
         unpriced={view.portfolio.unpriced.length}
         labelOf={labelOf}
       />
-
+    )),
+    card('forecast-by-month', () => (
       <Card title="Projected income by month" subtitle={window}>
         {items.length === 0 ? (
           <p className="text-sm text-muted">
@@ -294,36 +317,37 @@ export function Forecast() {
           </>
         )}
       </Card>
+    )),
+    card('forecast-months', () => (
+      <Card title="Month by month" subtitle="Tap a month for the payments behind it">
+        <MonthList months={forecast.months} currency={base} net={net} projected={known} />
+      </Card>
+    )),
+    card('forecast-upcoming', () => (
+      <Card
+        title="Next payments"
+        subtitle={
+          future.length > upcoming.length ? `Soonest ${upcoming.length} of ${future.length}` : undefined
+        }
+      >
+        <UpcomingPayments items={upcoming} currency={base} net={net} />
+      </Card>
+    )),
+    card('forecast-concentration', () => (
+      <Card
+        title="Income concentration"
+        subtitle={
+          projected
+            ? 'Share of the projected 12 months by holding'
+            : 'Share of the declared accruals only — not yet a full year'
+        }
+      >
+        <Concentration rows={concentration.rows} total={concentration.total} currency={base} />
+      </Card>
+    )),
+  ]
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <Card title="Month by month" subtitle="Tap a month for the payments behind it">
-          <MonthList months={forecast.months} currency={base} net={net} projected={known} />
-        </Card>
-
-        <div className="space-y-4">
-          <Card
-            title="Next payments"
-            subtitle={
-              future.length > upcoming.length ? `Soonest ${upcoming.length} of ${future.length}` : undefined
-            }
-          >
-            <UpcomingPayments items={upcoming} currency={base} net={net} />
-          </Card>
-
-          <Card
-            title="Income concentration"
-            subtitle={
-              projected
-                ? 'Share of the projected 12 months by holding'
-                : 'Share of the declared accruals only — not yet a full year'
-            }
-          >
-            <Concentration rows={concentration.rows} total={concentration.total} currency={base} />
-          </Card>
-        </div>
-      </div>
-    </div>
-  )
+  return <CardStack tab="forecast" cards={cards} />
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

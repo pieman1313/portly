@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { CardStack } from '../cards/CardStack'
+import { card } from '../cards/useCardLayout'
+import type { CardSpec } from '../cards/layout'
 import { usePortfolio } from '../usePortfolio'
 import { db } from '../../db/schema'
 import type { Holding } from '../../metrics/holdings'
@@ -264,11 +267,8 @@ export function Holdings() {
   const currencyNote = `Value, cost and P/L in ${base}. Price and average cost in the position's own currency.`
   const coverage = coverageNote(forecast.coverage, base)
 
-  return (
-    <div className="space-y-4">
-      {/* Every other tab opens with one, so the document outline stays h1 → h2
-          → h3 as the user moves between them. */}
-      <h1 className="sr-only">Holdings</h1>
+  const cards: CardSpec[] = [
+    card('holdings-kpis', () => (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Holdings"
@@ -313,7 +313,8 @@ export function Holdings() {
           )} on cost${coverageHint}`}
         />
       </div>
-
+    )),
+    card('positions', () => (
       <Card
         title="Positions"
         // The subtitle is one of three things standing between a phone user and
@@ -467,7 +468,28 @@ export function Holdings() {
           </>
         )}
       </Card>
-    </div>
+    ), {
+      // `query`, `sort` and `showClosed` all live in this component, so they
+      // survive a collapse. That is right for the sort and the show-sold
+      // switch — they are how you left the list, and finding it that way again
+      // is the point. It is wrong for the search: a collapsed Positions card
+      // holding a live filter is an invisible filter, and expanding it weeks
+      // later shows a three-row list with nothing on screen explaining why the
+      // other twenty positions are gone. Clear it on the way down.
+      onCollapsedChange: (collapsed) => {
+        if (collapsed) setQuery('')
+      },
+    }),
+  ]
+
+  return (
+    <CardStack
+      tab="holdings"
+      // Every other tab opens with one, so the document outline stays h1 → h2
+      // → h3 as the user moves between them. Not a card.
+      lead={<h1 className="sr-only">Holdings</h1>}
+      cards={cards}
+    />
   )
 }
 

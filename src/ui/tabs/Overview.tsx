@@ -11,6 +11,9 @@ import {
   formatPct,
 } from '../components/primitives'
 import { Columns, Donut, foldStack, seriesColor } from '../components/charts'
+import { CardStack } from '../cards/CardStack'
+import { card } from '../cards/useCardLayout'
+import type { CardSpec } from '../cards/layout'
 import { usePortfolio } from '../usePortfolio'
 import { sum, sumBy } from '../../metrics/money'
 import { isExternalFlow } from '../../metrics/returns'
@@ -153,9 +156,21 @@ export function Overview() {
     )
   }
 
-  return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Overview</h1>
+  /*
+   * The tab root is a spec array, not JSX. Each entry is a card the user can
+   * collapse, hide or drag; CardStack renders the `div.space-y-4` itself, so
+   * every one of these is still its direct child and the mobile snap rules see
+   * exactly the tree they saw before.
+   *
+   * `render` is a thunk rather than an element: a hidden card should not have
+   * its tree built at all, and on Overview that means not laying out two
+   * donuts and a stacked bar chart nobody asked to see.
+   */
+  const cards: CardSpec[] = [
+    // No title, so no header and no chevron. It is also the only place that
+    // explains why a total could not be worked out, which is why it does not
+    // offer to go away.
+    card('portfolio-value', () => (
       <Card>
         <Hero
           label={`Portfolio value (${base})`}
@@ -178,7 +193,8 @@ export function Overview() {
           <p className="text-xs text-muted mt-1">{statementPrices}</p>
         )}
       </Card>
-
+    )),
+    card('key-figures', () => (
       <section aria-labelledby="ov-figures">
         <h2 id="ov-figures" className="sr-only">
           Key figures
@@ -241,21 +257,24 @@ export function Overview() {
           {settings.showNetDividends ? 'net of withholding tax' : 'gross, before withholding tax'}.
         </p>
       </section>
-
+    )),
+    card('allocation-holding', () => (
       <Card
         title="Allocation by holding"
         subtitle={`Share of ${base} market value · open, priced positions only`}
       >
         <Allocation slices={byHolding} currency={base} label="Allocation by holding" />
       </Card>
-
+    )),
+    card('allocation-currency', () => (
       <Card
         title="Allocation by currency"
         subtitle={`Share of ${base} market value · open, priced positions only`}
       >
         <Allocation slices={byCurrency} currency={base} label="Allocation by currency" />
       </Card>
-
+    )),
+    card('dividends-12m', () => (
       <Card
         title="Dividends received"
         subtitle={
@@ -293,20 +312,45 @@ export function Overview() {
           </>
         )}
       </Card>
+    )),
+  ]
 
-      {issues.length > 0 && (
-        <Card title="Data quality" subtitle="What is missing, and what it does to the numbers above">
-          <ul className="space-y-2.5">
-            {issues.map((issue) => (
-              <li key={issue.badge} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <Badge tone={issue.tone}>{issue.badge}</Badge>
-                <span className="text-xs text-muted flex-1 min-w-[12rem]">{issue.text}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-    </div>
+  // A conditional card becomes a conditional ARRAY ENTRY, so on a clean
+  // portfolio it is not listed in the arrange sheet either — there is nothing
+  // there to arrange. Its stored placement survives its absence: the order
+  // reconciler keeps an id it cannot see this render rather than dropping it.
+  if (issues.length > 0) {
+    cards.push(
+      card(
+        'data-quality',
+        () => (
+          <Card title="Data quality" subtitle="What is missing, and what it does to the numbers above">
+            <ul className="space-y-2.5">
+              {issues.map((issue) => (
+                <li key={issue.badge} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <Badge tone={issue.tone}>{issue.badge}</Badge>
+                  <span className="text-xs text-muted flex-1 min-w-[12rem]">{issue.text}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ),
+        // The badges carry the counts, so any change in kind or number re-shows
+        // a note the user had already dismissed. Silence about new problems is
+        // the one thing a dismissable warning must not buy.
+        { signature: issues.map((i) => i.badge).join('|') },
+      ),
+    )
+  }
+
+  return (
+    <CardStack
+      tab="overview"
+      // The document outline, and the `:first-child` whose scroll-margin pins
+      // the top of the page as a place you can stand. Not a card.
+      lead={<h1 className="sr-only">Overview</h1>}
+      cards={cards}
+    />
   )
 }
 

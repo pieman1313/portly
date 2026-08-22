@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useMarketDataSync } from './ui/useMarketDataSync'
+import { ArrangeButton } from './ui/cards/ArrangeButton'
+import { CardsProvider, useCards } from './ui/cards/useCardLayout'
 
 /*
  * Tabs are split per route. On a phone this matters: the Data tab alone pulls in
@@ -140,7 +142,13 @@ function useTabSwipe(tab: TabId, go: (t: TabId) => void) {
       const target = e.target instanceof Element ? e.target : null
       if (
         target?.closest(
-          'input, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="slider"]',
+          // `[data-no-swipe]` is carried by the arrange sheet's root. A reorder
+          // drag is a horizontal drift on a button, which passes every threshold
+          // below, and this listener is passive — so `touch-action: none` on the
+          // grip cannot help. That governs whether the BROWSER pans, not whether
+          // we measure. It states the broader rule correctly too: no swipe
+          // inside a modal should change tabs.
+          'input, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="slider"], [data-no-swipe]',
         )
       ) {
         gesture = null
@@ -216,11 +224,24 @@ function useTabSwipe(tab: TabId, go: (t: TabId) => void) {
   }, [])
 }
 
+/**
+ * The provider renders no DOM, so it can sit here without becoming an element
+ * between <main> and a tab root — which the mobile snap CSS would notice.
+ */
 export function App() {
+  return (
+    <CardsProvider>
+      <AppShell />
+    </CardsProvider>
+  )
+}
+
+function AppShell() {
   const [tab, go] = useHashRoute()
   // Mounted once, here, so prices refresh on open and after every import
   // regardless of which tab the user happens to be looking at.
   const sync = useMarketDataSync()
+  const { close } = useCards()
 
   useTabSwipe(tab, go)
 
@@ -228,6 +249,12 @@ export function App() {
     const active = TABS.find((t) => t.id === tab)
     document.title = active ? `${active.label} · Portly` : 'Portly'
   }, [tab])
+
+  // A bottom-nav tap while the arrange sheet is open would otherwise leave it
+  // describing a tab that is no longer rendered.
+  useEffect(() => {
+    close()
+  }, [tab, close])
 
   // Land at the top of every tab. Tabs are separate destinations, not one long
   // document, so carrying the scroll offset across drops the user into the
@@ -287,6 +314,7 @@ export function App() {
             ))}
           </nav>
           <SyncStatus sync={sync} className="ml-auto" />
+          <ArrangeButton tab={tab} />
         </div>
       </header>
 
@@ -297,6 +325,7 @@ export function App() {
             {TABS.find((t) => t.id === tab)?.label ?? 'Portly'}
           </span>
           <SyncStatus sync={sync} className="ml-auto" />
+          <ArrangeButton tab={tab} />
         </div>
       </header>
 

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { Badge, Card, EmptyState, Money } from '../components/primitives'
+import { CardStack } from '../cards/CardStack'
+import { card } from '../cards/useCardLayout'
+import type { CardSpec } from '../cards/layout'
 import { usePortfolio } from '../usePortfolio'
 import type { PortfolioView } from '../usePortfolio'
 import { useMarketData } from '../useMarketData'
@@ -45,19 +48,45 @@ const FOCUS =
 export function Data() {
   const view = usePortfolio()
 
-  return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Data</h1>
-
-      <ImportSection />
-      <StatementsSection view={view} />
-      <MarketDataSection view={view} />
-      <SettingsSection view={view} />
-      <BackupSection />
+  /*
+   * Every card here is `keepMounted` in the policy table, so a collapse hides
+   * the body rather than unmounting it.
+   *
+   * For Backup that is a correctness requirement: ExportBlock and RestoreBlock
+   * are children of that Card, and the typed passphrase, the picked restore
+   * file and the merge/replace choice live in them — precisely the things a
+   * collapse would drop, and nothing else remembers any of them.
+   *
+   * For the other six it is not needed today, and saying otherwise would be
+   * wrong: an in-flight import, an in-flight refresh and the post-wipe "Reload
+   * Portly" button are all held in the section component ABOVE the body, so
+   * they survive a collapse with the flag off. They carry it anyway so the rule
+   * on this tab is simply "folding a Data card never loses work in progress" —
+   * which is a rule that stays true the next time someone pulls a block out
+   * into its own component, instead of a per-card judgement they would have to
+   * get right without being told it existed.
+   *
+   * Only `storage` is hideable, because it is the one section that merely
+   * reports. Every other section is the SOLE route to what it does — there is no
+   * second importer, no second refresh button, no other way to export a backup
+   * or erase the database — so hiding one would strand the user with no way back
+   * to it from this page. The arrange sheet shows their eye disabled with a
+   * reason rather than omitting it, which answers "where did Import go" before
+   * it is asked.
+   */
+  const cards: CardSpec[] = [
+    card('import', () => <ImportSection />),
+    card('statements', () => <StatementsSection view={view} />),
+    card('market-data', () => <MarketDataSection view={view} />),
+    card('settings', () => <SettingsSection view={view} />),
+    card('backup', () => <BackupSection />),
+    card('storage', () => (
       <StorageSection files={view.files.length} rows={view.transactions.length} />
-      <DangerSection />
-    </div>
-  )
+    )),
+    card('danger', () => <DangerSection />),
+  ]
+
+  return <CardStack tab="data" lead={<h1 className="sr-only">Data</h1>} cards={cards} />
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,6 +184,11 @@ function ImportSection() {
     <Card
       title="Import an IBKR Activity Statement"
       subtitle="Export from Interactive Brokers as CSV, then drop it here."
+      // keepMounted means a collapse would keep the import running behind
+      // display:none — but the per-file progress above is the only thing saying
+      // so, and folding it away mid-parse reads as a page that has stopped
+      // doing anything. Locked until the run finishes.
+      collapseLock={busy ? 'Wait for the import to finish' : undefined}
     >
       <p className="text-sm text-ink/90 mb-3">
         <span className="font-semibold">Your files never leave this device.</span>{' '}
@@ -780,6 +814,10 @@ function MarketDataSection({ view }: { view: PortfolioView }) {
     <Card
       title="Market data"
       subtitle="Optional. Off by choice is a supported way to use Portly."
+      // Same reason as Import: the refresh survives a collapse, but its
+      // per-provider progress is the only evidence of that, and a network run
+      // is exactly the point at which a silent card looks like a hung one.
+      collapseLock={state.running ? 'Wait for the refresh to finish' : undefined}
     >
       <Switch
         id="portly-market-data"

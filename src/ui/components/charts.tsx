@@ -285,6 +285,13 @@ export function Columns({
             stroke={stacked && series.length > 1 ? SURFACE : undefined}
             strokeWidth={stacked && series.length > 1 ? 2 : 0}
             radius={i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+            // Recharts animates in JS through react-smooth, so the
+            // prefers-reduced-motion block in index.css — which only zeroes CSS
+            // animation and transition durations — never reached it. A collapsed
+            // card unmounts its body, so expanding a chart card remounts the
+            // chart and replays the grow-in on every single tap, for everyone
+            // including a user who asked the system for less motion.
+            isAnimationActive={false}
           />
         ))}
       </BarChart>
@@ -331,6 +338,9 @@ export function TimeLine({
             dot={false}
             // 8px marker with a 2px surface ring so it stays legible on crossings.
             activeDot={{ r: 4, strokeWidth: 2, stroke: SURFACE }}
+            // Same reason as the Bar above: a JS-driven animation that
+            // prefers-reduced-motion cannot see, replayed on every card expand.
+            isAnimationActive={false}
           />
         ))}
       </LineChart>

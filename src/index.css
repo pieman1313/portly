@@ -48,6 +48,24 @@ body {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
 
+/* The arrange sheet's entrance. A transform, not a height or a top: a sheet
+   that animates its box makes the browser re-lay-out the list behind it on
+   every frame. The prefers-reduced-motion block above already zeroes it. */
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@media (min-width: 640px) {
+  /* From sm up the sheet is a centred floating panel, and it is already
+     translated on the x axis to get there — so a y-only keyframe would fight
+     that translate and land it off-centre. Fade instead. */
+  @keyframes sheet-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+}
+
 /*
  * Card-by-card scroll snapping, phones only.
  *
@@ -62,6 +80,22 @@ body {
  *
  * Restricted to coarse pointers: on a trackpad, snapping fights the fine
  * control the user already has.
+ *
+ * The five selectors below have a contract with src/ui/cards/CardStack.tsx, and
+ * it is worth writing down because every way of breaking it is silent:
+ *   - the tab root is rendered BY CardStack. Nothing is ever inserted between
+ *     <main> and it, and no card is ever wrapped. One wrapper re-points
+ *     `main > div` at it, and `main > div > :last-child section` (0,1,3) then
+ *     outranks `main > div > * > section` (0,0,3) and switches snapping off on
+ *     every card in the app.
+ *   - a card the user hides is UNMOUNTED. Never `hidden`, never height:0 — a
+ *     boxless :last-child has no snap area and the 72px-short bug below comes
+ *     straight back.
+ *   - reordering PERMUTES THE ARRAY. Never `order:`, never `column-reverse`:
+ *     :last-child reads DOM order, and so does `space-y-4`'s `& > * + *`.
+ *   - the arrange sheet is PORTALED to document.body. A position:fixed element
+ *     contributes no snap area but still matches :last-child.
+ * src/ui/cards/cards.test.tsx asserts all four.
  */
 @media (max-width: 639px) and (pointer: coarse) {
   html {

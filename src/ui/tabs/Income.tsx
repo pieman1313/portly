@@ -20,6 +20,9 @@ import {
   Toggle,
   formatMoney,
 } from '../components/primitives'
+import { CardStack } from '../cards/CardStack'
+import { card } from '../cards/useCardLayout'
+import type { CardSpec } from '../cards/layout'
 import { usePortfolio } from '../usePortfolio'
 
 /**
@@ -168,8 +171,8 @@ export function Income() {
     )
   }
 
-  return (
-    <div className="space-y-4">
+  const cards: CardSpec[] = [
+    card('income-controls', () => (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 [&_button]:min-h-[44px] [&_button]:px-3">
         <Toggle
           label="Group by"
@@ -186,13 +189,15 @@ export function Income() {
           onChange={setBasis}
         />
       </div>
-
+    )),
+    card('income-basis-note', () => (
       <p className="text-xs text-muted max-w-prose">
         Net uses the withholding tax actually reported against each payment in your
         statement — not an assumed 15% or 30%. Everything on this screen is bucketed by
         pay date, so a bar is the cash that landed in that period.
       </p>
-
+    )),
+    card('income-tiles', () => (
       <Tiles
         base={base}
         net={net}
@@ -201,27 +206,39 @@ export function Income() {
         trailing={trailing}
         best={best}
       />
-
-      {/* The tiles are sums of the same converted payments the chart plots, so
-          an FX gap understates them too — and unlike the chart and the matrix
-          they carry no card header to hang a badge off. */}
-      {chartMissingFx > 0 && (
-        <p className="text-xs text-warn max-w-prose">
-          {chartMissingFx === 1 ? '1 payment' : `${chartMissingFx} payments`} had no{' '}
-          {base} rate on the pay date and could not be converted, so every total on this
-          screen is understated by {chartMissingFx === 1 ? 'it' : 'them'}.
-        </p>
-      )}
-
-      {irregularCount > 0 && (
-        <p className="text-xs text-muted max-w-prose">
-          {irregularCount === 1 ? '1 payment is' : `${irregularCount} payments are`} a
-          return of capital, payment in lieu or special. They are counted in the all-time
-          total but left out of the chart and matrix below, where they would show up as a
-          spike and then a phantom cut a year later.
-        </p>
-      )}
-
+    )),
+    // The tiles are sums of the same converted payments the chart plots, so
+    // an FX gap understates them too — and unlike the chart and the matrix
+    // they carry no card header to hang a badge off.
+    //
+    // A conditional block becomes a conditional ARRAY ENTRY, spread in place
+    // rather than pushed afterwards, so declaration order still equals document
+    // order. Its stored placement survives its absence: the order reconciler
+    // keeps an id it cannot see this render rather than dropping it.
+    ...(chartMissingFx > 0
+      ? [
+          card('income-fx-warning', () => (
+            <p className="text-xs text-warn max-w-prose">
+              {chartMissingFx === 1 ? '1 payment' : `${chartMissingFx} payments`} had no{' '}
+              {base} rate on the pay date and could not be converted, so every total on this
+              screen is understated by {chartMissingFx === 1 ? 'it' : 'them'}.
+            </p>
+          )),
+        ]
+      : []),
+    ...(irregularCount > 0
+      ? [
+          card('income-irregular-note', () => (
+            <p className="text-xs text-muted max-w-prose">
+              {irregularCount === 1 ? '1 payment is' : `${irregularCount} payments are`} a
+              return of capital, payment in lieu or special. They are counted in the all-time
+              total but left out of the chart and matrix below, where they would show up as a
+              spike and then a phantom cut a year later.
+            </p>
+          )),
+        ]
+      : []),
+    card('income-chart', () => (
       <IncomeChart
         base={base}
         net={net}
@@ -231,12 +248,32 @@ export function Income() {
         trailing={trailing}
         missingFx={chartMissingFx}
       />
-
+    )),
+    // These last two are `keepMounted` in the policy table, so collapsing them
+    // hides the body with `hidden` instead of unmounting it — and it is worth
+    // being exact about why, because the tempting reason is not the true one.
+    // `start` (the matrix's month window) and `shown` (RecentPayments' reveal
+    // count) both live in the component that renders the Card, which is ABOVE
+    // the children a collapse drops, so both survive with the flag off; that
+    // was measured, not assumed. What the flag buys here is the wide matrix's
+    // `scrollLeft`, which the browser restores across `display: none` but not
+    // across an unmount, and not rebuilding a table or a long payment list on
+    // every expand. (The reveal branch of MatrixCard's ResizeObserver had to
+    // learn about this too — see the `scrollLeft === 0` guard there.)
+    // Collapse-then-expand is a routine way to reach past a card on a phone,
+    // not a farewell, so it should cost nothing.
+    //
+    // The chart above deliberately does NOT get the same treatment: a Recharts
+    // ResponsiveContainer inside `display: none` measures 0x0 and warns.
+    card('payments-matrix', () => (
       <MatrixCard base={base} net={net} matrix={view.matrix} />
-
+    )),
+    card('recent-payments', () => (
       <RecentPayments distributions={view.distributions} symbols={symbols} />
-    </div>
-  )
+    )),
+  ]
+
+  return <CardStack tab="income" cards={cards} />
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -530,7 +567,14 @@ function MatrixCard({
     let shown = el.clientWidth > 0
     const ro = new ResizeObserver(() => {
       const nowShown = el.clientWidth > 0
-      if (nowShown && !shown) snap()
+      // Only snap a scroller still sitting at its start. Collapsing this card
+      // sets `display: none` on the body, which fires exactly the same
+      // 0 -> non-zero transition on expand as a rotation into landscape does —
+      // so an unconditional snap threw away the months the user had scrolled to
+      // every time they folded the card and opened it again. The browser
+      // restores scrollLeft across display:none by itself, so a non-zero offset
+      // here means the user put it there, and it should be left alone.
+      if (nowShown && !shown && el.scrollLeft === 0) snap()
       shown = nowShown
     })
     ro.observe(el)

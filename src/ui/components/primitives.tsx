@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useContext, useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Currency, Provenance } from '../../domain/types'
+import { SlotContext } from '../cards/slot'
+import { ChevronIcon } from '../cards/icons'
 
 /**
  * Shared UI kit. Every tab is built from these so the app reads as one system.
@@ -19,6 +21,7 @@ export function Card({
   children,
   className = '',
   cap = true,
+  collapseLock,
 }: {
   title?: ReactNode
   subtitle?: ReactNode
@@ -32,7 +35,23 @@ export function Card({
    * the page scroller costs the user a gesture every time.
    */
   cap?: boolean
+  /**
+   * A reason the collapse control is unavailable right now, or undefined. Set
+   * by a card holding work in flight — an import mid-parse, a market-data
+   * refresh mid-run — so its live status cannot be folded away while it is
+   * still saying something.
+   */
+  collapseLock?: string
 }) {
+  // Null unless this card was rendered into a CardStack slot. Skeletons and
+  // empty states render bare Cards and get no chrome, which is right: there is
+  // nothing to arrange on a screen with no data on it.
+  const chrome = useContext(SlotContext)
+  const bodyId = useId()
+  const collapsed = chrome?.collapsed === true
+  const showChevron = chrome?.collapsible === true
+  const bodyMounted = !collapsed || chrome?.keepMounted === true
+
   // Only on mobile: on a laptop a tall card is just a tall card, and capping it
   // there would introduce a scrollbar nobody asked for.
   //
@@ -40,24 +59,80 @@ export function Card({
   // vertical axis would stop a swipe that starts inside a capped card from ever
   // reaching the page once the card hits its own scroll limit, which is exactly
   // the trap the payments matrix used to have.
-  const body = cap
-    ? 'max-h-[75vh] overflow-y-auto sm:max-h-none sm:overflow-visible'
-    : ''
+  //
+  // Branched on `collapsed` rather than appended to, because `hidden` and
+  // `overflow-y-auto` on one element is a coin toss: Tailwind emits utilities in
+  // stylesheet order, so which one wins has nothing to do with which came last
+  // in the class attribute.
+  const body = collapsed
+    ? 'hidden'
+    : cap
+      ? 'max-h-[75vh] overflow-y-auto sm:max-h-none sm:overflow-visible'
+      : ''
+
+  const header = title || right || showChevron
 
   return (
     <section
-      className={`bg-surface border border-border rounded-xl flex flex-col ${cap ? 'max-h-[75vh] sm:max-h-none' : ''} ${className}`}
+      // Collapsed, there is no body to cap, and leaving the cap on would let a
+      // long title wrap into a 75vh box with nothing under it.
+      className={`bg-surface border border-border rounded-xl flex flex-col ${cap && !collapsed ? 'max-h-[75vh] sm:max-h-none' : ''} ${className}`}
     >
-      {(title || right) && (
+      {header && (
         // Sticky so the card keeps saying what it is while its body scrolls
         // underneath. Matches the card's own background so rows slide behind it
         // rather than showing through.
-        <header className="flex items-start justify-between gap-3 shrink-0 bg-surface rounded-t-xl px-4 pt-4 pb-3 sm:px-5 sm:pt-5">
-          <div className="min-w-0">
+        //
+        // Collapsed, the header IS the card, so it takes the full radius and its
+        // own bottom padding. Without that the bottom corners come out square:
+        // the radius lives on the section, which has no `overflow-hidden`, so
+        // the header's own background paints over the corner.
+        <header
+          className={`flex items-start justify-between gap-3 shrink-0 bg-surface px-4 pt-4 sm:px-5 sm:pt-5 ${
+            collapsed ? 'rounded-xl pb-4 sm:pb-5' : 'rounded-t-xl pb-3'
+          }`}
+        >
+          <div className="min-w-0 flex-1">
             {title && <h2 className="text-sm font-semibold text-ink truncate">{title}</h2>}
-            {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
+            {/* Dropped while collapsed: the subtitle is the card's small print,
+                and a collapsed card is a one-line index entry. */}
+            {subtitle && !collapsed && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
           </div>
-          {right && <div className="shrink-0">{right}</div>}
+          {(right || showChevron) && (
+            // `min-w-0` and NOT `shrink-0` on the group: the chevron is 44px
+            // that did not exist before, and taken entirely out of a truncating
+            // <h2> it left three Income headers with no readable title at
+            // 360px — the FX badge alone is about 140px. So `right` is the part
+            // allowed to give way, while the chevron keeps its full touch
+            // target. A control the user needs to reach should not be the thing
+            // that shrinks.
+            <div className="min-w-0 flex items-start gap-1">
+              {right && <div className="min-w-0 truncate">{right}</div>}
+              {showChevron && chrome !== null && (
+                <button
+                  type="button"
+                  onClick={chrome.toggle}
+                  disabled={collapseLock !== undefined}
+                  aria-expanded={!collapsed}
+                  // Omitted while the body is out of the accessibility tree —
+                  // unmounted, or display:none — matching the disclosures on
+                  // Holdings. A dangling aria-controls is worse than none.
+                  aria-controls={collapsed ? undefined : bodyId}
+                  // `relative` so the sr-only label below resolves its
+                  // containing block here. Tailwind's sr-only is
+                  // position:absolute, and one laid out against the page
+                  // stretched the Income document 898px past its own content.
+                  className="relative -mr-2 -mt-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-muted hover:text-ink disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                >
+                  <span className="sr-only">
+                    {collapsed ? 'Expand' : 'Collapse'} {chrome.label}
+                    {collapseLock === undefined ? '' : `. ${collapseLock}`}
+                  </span>
+                  <ChevronIcon open={!collapsed} />
+                </button>
+              )}
+            </div>
+          )}
         </header>
       )}
       {/* `relative` is load-bearing when this body scrolls. An absolutely
@@ -69,9 +144,15 @@ export function Card({
           898px past the end of its own content: a screenful of blank space
           below the last card, scrollable and empty. */}
       <div
-        className={`relative min-h-0 px-4 pb-4 sm:px-5 sm:pb-5 ${!(title || right) ? 'pt-4 sm:pt-5' : ''} ${body}`}
+        id={bodyId}
+        className={`relative min-h-0 px-4 pb-4 sm:px-5 sm:pb-5 ${!header ? 'pt-4 sm:pt-5' : ''} ${body}`}
       >
-        {children}
+        {/* A Card consumes its slot exactly once. Fencing the body means a Card
+            nested inside another card's body can never sprout a chevron wired to
+            its parent's id, or collapse its parent. No such nesting exists
+            today; Data.tsx alone has nine Card call sites across 1900 lines, so
+            the invariant is worth the one line. */}
+        {bodyMounted && <SlotContext.Provider value={null}>{children}</SlotContext.Provider>}
       </div>
     </section>
   )
