@@ -18,9 +18,9 @@ const Data = lazy(() => import('./ui/tabs/Data').then((m) => ({ default: m.Data 
 /**
  * App shell.
  *
- * Navigation is mobile-first: a thumb-reachable bottom bar on small screens,
- * a top bar from `sm` up. Both render the same five destinations in the same
- * order, so muscle memory survives a rotation.
+ * Navigation is mobile-first: a thumb-reachable bar floating above the bottom
+ * of the screen on small screens, a top bar from `sm` up. Both render the same
+ * five destinations in the same order, so muscle memory survives a rotation.
  *
  * Routing is a hash router written by hand. A router dependency would buy us
  * nothing here — there are five static routes, no params, no nesting — and the
@@ -295,7 +295,10 @@ function AppShell() {
         Skip to content
       </a>
 
-      {/* Desktop / tablet navigation */}
+      {/* Desktop / tablet navigation. `sticky` is already a positioned
+          ancestor, so RefreshLine can hang off the bottom edge of it — do not
+          add `relative` here, it is the same CSS property and would unstick the
+          bar. */}
       <header className="hidden sm:block sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-6">
           <span className="flex items-center gap-2 font-semibold tracking-tight">
@@ -317,26 +320,40 @@ function AppShell() {
               </button>
             ))}
           </nav>
-          <SyncStatus sync={sync} className="ml-auto" />
-          <ArrangeButton tab={tab} />
+          {/* One right-hand group, not two `ml-auto` items: the group's right
+              edge is the bar's right edge, so anything the status has to say
+              grows leftwards and the gear does not move. */}
+          <div className="ml-auto flex items-center gap-3">
+            <SyncStatus sync={sync} />
+            <ArrangeButton tab={tab} />
+          </div>
         </div>
+        <RefreshLine active={sync.running} />
       </header>
 
       {/* Mobile title bar */}
       <header className="sm:hidden sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
         <div className="h-12 px-4 flex items-center gap-3">
-          <span className="flex items-center gap-2 min-w-0 font-semibold tracking-tight">
+          {/* `flex-1`, so the title takes the slack and the gear stays welded to
+              the right edge whether or not the status has anything to say. */}
+          <span className="flex-1 flex items-center gap-2 min-w-0 font-semibold tracking-tight">
             <Logo size={20} />
             <span className="truncate">{TABS.find((t) => t.id === tab)?.label ?? 'Portly'}</span>
           </span>
-          <SyncStatus sync={sync} className="ml-auto" />
+          <SyncStatus sync={sync} />
           <ArrangeButton tab={tab} />
         </div>
+        <RefreshLine active={sync.running} />
       </header>
 
       <main
         id="main"
-        // Bottom padding clears the mobile tab bar plus the iOS home indicator.
+        // Bottom padding clears the floating mobile tab bar, the gap it floats
+        // above the screen edge, and the iOS home indicator. 4.5rem is a
+        // CONTRACT with `scroll-padding-bottom` in src/index.css, which has to
+        // reserve exactly the same strip: it is what puts the end-aligned snap
+        // position of the last card at the page's own maximum scroll. Change
+        // one and the end of every tab goes a tab bar's height out of reach.
         // `flex flex-col` so a single child can ask to fill the remaining
         // height — the no-data hero centres itself in whatever is left. It
         // changes nothing for a tab with content: a column flex container with
@@ -349,28 +366,71 @@ function AppShell() {
         </Suspense>
       </main>
 
-      {/* Mobile bottom navigation */}
+      {/*
+        Mobile bottom navigation: a capsule floating clear of the screen edge
+        rather than a slab welded to it.
+
+        The strip AROUND the capsule is `pointer-events-none`. A full-width
+        fixed element that reaches the bottom of the viewport eats every tap in
+        the margin beside and below the pill, and on this app that margin sits
+        over the last card of a scrolled page.
+
+        Both insets are honoured rather than one: `pb` carries the iOS home
+        indicator, which the capsule floats above rather than through, and the
+        4.5rem `main` reserves above covers the capsule, the gap and 0.5rem of
+        clearance so the last card stops short of it instead of under it.
+      */}
       <nav
         aria-label="Sections"
-        className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-surface/95 backdrop-blur border-t border-border pb-[env(safe-area-inset-bottom)]"
+        className="sm:hidden fixed bottom-0 inset-x-0 z-30 pointer-events-none px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
-        <ul className="grid grid-cols-5">
+        {/* `p-1`, so a current-tab capsule sits INSIDE the bar rather than
+            butting up against its rim — the two radii are concentric that way
+            and the ends of the bar stay clean. The item loses those 8px of
+            height and not the bar, which is how the strip this reserves stays
+            the 4.5rem `main` and the snap block both bank on. */}
+        <ul
+          className="pointer-events-auto mx-auto max-w-sm flex p-1 rounded-full border border-border
+                     bg-surface/85 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+        >
           {TABS.map((t) => {
             const Icon = t.icon
             const active = tab === t.id
             return (
-              <li key={t.id}>
+              <li key={t.id} className="flex-1">
                 <button
                   type="button"
                   onClick={() => go(t.id)}
                   aria-current={active ? 'page' : undefined}
-                  // 56px tall: comfortably above the 44px minimum touch target.
-                  className={`w-full h-14 flex flex-col items-center justify-center gap-0.5 ${
-                    active ? 'text-accent' : 'text-muted'
-                  }`}
+                  // 48px tall inside the bar's 4px of padding: still clear of
+                  // the 44px minimum touch target, and the bar comes to 56px
+                  // between its rims.
+                  //
+                  // `rounded-full` on the button as well as on the bar, so the
+                  // current-tab capsule and the focus ring follow the shape of
+                  // the ends rather than squaring them off. The ring is INSET
+                  // for the same reason: an outset one would draw outside the
+                  // bar it belongs to.
+                  //
+                  // The current tab wears that capsule and INK text rather than
+                  // accent-coloured text. Accent measures 4.90:1 on this bar
+                  // over the page, and 3.99:1 where the blur picks up a chart
+                  // behind it — under the 4.5:1 that 10px text needs, and it was
+                  // only the old bar's opacity keeping it above the line. Ink on
+                  // the capsule is 12.55:1 and 10.12:1 in those same two places,
+                  // and the capsule says "you are here" by SHAPE, which colour
+                  // alone never did.
+                  className={`w-full h-12 rounded-full flex flex-col items-center justify-center gap-1
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                      active ? 'bg-accent/15 text-ink' : 'text-muted'
+                    }`}
                 >
                   <Icon />
-                  <span className="text-[10px] leading-none">{t.label}</span>
+                  {/* Never wraps. The bar's height is load-bearing — `main` and
+                      the snap block both reserve 4.5rem for it — and a label
+                      that took a second line would grow the bar into the strip
+                      they reserved without either of them knowing. */}
+                  <span className="text-[10px] leading-none whitespace-nowrap">{t.label}</span>
                 </button>
               </li>
             )
@@ -383,33 +443,79 @@ function AppShell() {
 
 /**
  * Refresh status. Silent when nothing is happening — a permanent green tick is
- * noise. Only speaks up while working, or when a provider failed and some
- * number on screen is therefore older than it looks.
+ * noise.
+ *
+ * A refresh in flight takes NO ROOM in the bar. It used to read "··· Updating
+ * prices", which gave the header two layouts — one with the phrase and one
+ * without — so the title lost a third of its width and the controls beside it
+ * slid sideways twice a refresh, for a background job nobody asked to watch.
+ * What is left here is the announcement; the visible half is <RefreshLine/>,
+ * which is 2px tall and lays nothing out.
+ *
+ * A FAILURE still gets a control, because then some number on screen is older
+ * than it looks and there is somewhere to go about it.
  */
-function SyncStatus({
-  sync,
-  className = '',
-}: {
-  sync: ReturnType<typeof useMarketDataSync>
-  className?: string
-}) {
-  if (sync.running) {
-    return (
-      <span className={`text-[11px] text-muted ${className}`} role="status">
-        <span aria-hidden>&#183;&#183;&#183;</span> Updating prices
-      </span>
-    )
-  }
-  const failed = sync.error !== null || sync.quotesFailed > 0
-  if (!failed) return null
+function SyncStatus({ sync }: { sync: ReturnType<typeof useMarketDataSync> }) {
+  // Mounted whether or not it has anything to say. A live region inserted at
+  // the same moment its text appears is announced by some screen readers and
+  // swallowed by others; one that is already sitting there is announced by all
+  // of them. `sr-only` is out of flow, so an empty one costs no width.
+  const status = (
+    <span role="status" aria-live="polite" className="sr-only">
+      {sync.running ? 'Updating prices' : ''}
+    </span>
+  )
+
+  // Hidden while a refresh runs. `quotesFailed` survives from the previous run
+  // into the next one, so without this the warning would sit there contradicting
+  // the sweep of the refresh that is busy fixing it.
+  const failed = !sync.running && (sync.error !== null || sync.quotesFailed > 0)
+  if (!failed) return status
+
   return (
-    <a
-      href="#/data"
-      className={`text-[11px] text-warn hover:underline ${className}`}
-      title={sync.error ?? `${sync.quotesFailed} price lookup(s) failed`}
-    >
-      ! Prices out of date
-    </a>
+    <>
+      {status}
+      {/* Icon-only below `sm`, where the row is 48px and the title needs the
+          width. The glyph, not the amber, is what carries the meaning — the
+          colour is reinforcement, and the name says it in words. That name is
+          exactly the visible label from `sm` up, so "tap Prices out of date"
+          still works by voice. */}
+      <a
+        href="#/data"
+        aria-label="Prices out of date"
+        title={sync.error ?? `${sync.quotesFailed} price lookup(s) failed`}
+        className="shrink-0 min-h-[44px] inline-flex items-center gap-1.5 text-[11px] text-warn hover:underline"
+      >
+        <WarnIcon />
+        <span aria-hidden className="hidden sm:inline">
+          Prices out of date
+        </span>
+      </a>
+    </>
+  )
+}
+
+/**
+ * Prices are refreshing: a segment sweeping the bottom edge of the header.
+ *
+ * A line rather than a line of text. It occupies no row, so it cannot push a
+ * control sideways as it comes and goes; it is legible from across the room on
+ * a phone; and it is the shape every browser already uses for "fetching", so
+ * there is nothing to learn. `transform` only, so it composites on its own and
+ * never lays the header out again.
+ *
+ * `aria-hidden`: a moving rectangle is not worth describing, and SyncStatus's
+ * live region has already said it in words.
+ */
+function RefreshLine({ active }: { active: boolean }) {
+  if (!active) return null
+  return (
+    <div aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
+      <div
+        data-sweep
+        className="h-full w-2/5 rounded-full bg-accent animate-[price-sweep_1.5s_cubic-bezier(.4,0,.6,1)_infinite]"
+      />
+    </div>
   )
 }
 
@@ -439,7 +545,7 @@ function TabContent({ tab }: { tab: TabId }) {
 }
 
 /* Icons: inline 20px strokes. Inlined rather than pulled from a package —
-   five glyphs do not justify an icon dependency in a PWA bundle. */
+   six glyphs do not justify an icon dependency in a PWA bundle. */
 
 const ico = {
   width: 20,
@@ -492,6 +598,16 @@ function DatabaseIcon() {
       <ellipse cx="12" cy="5.5" rx="8" ry="3" />
       <path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13" />
       <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </svg>
+  )
+}
+
+/** Smaller than the rest: it sits beside 11px text, not beside a tab label. */
+function WarnIcon() {
+  return (
+    <svg {...ico} width={16} height={16}>
+      <path d="M12 4.4 21 20H3L12 4.4Z" />
+      <path d="M12 10.2v3.4M12 16.8h.01" />
     </svg>
   )
 }

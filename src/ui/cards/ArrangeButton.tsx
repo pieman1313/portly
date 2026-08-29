@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { TabId } from '../../App'
 import { useCards } from './useCardLayout'
-import { GripIcon } from './icons'
+import { GearIcon } from './icons'
 
 const FOCUS =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
@@ -14,9 +14,15 @@ const FOCUS =
  * spend the 1.5rem scroll-margin that exists specifically to keep the top of
  * the page somewhere you can stand. And one button serves all five tabs.
  *
- * Icon-only below `sm`. The mobile bar is 48px tall with a title and a
- * SyncStatus that can read "··· Updating prices"; a third labelled control does
- * not fit a 320px screen.
+ * Icon-only below `sm`. The mobile bar is 48px tall and already carries a title
+ * and, when a provider has failed, a warning; a third labelled control does not
+ * fit a 320px screen.
+ *
+ * It is PINNED to the right of both bars — the header gives the title `flex-1`
+ * so this stays put whether or not anything else is in the row. It used to sit
+ * wherever the row left it, which meant it slid to the edge and back every time
+ * a refresh started and finished, and a control that moves under your thumb is
+ * a control you tap twice.
  *
  * Absent, not disabled, while no CardStack is mounted — a tab showing its
  * loading skeleton or its empty state has nothing to arrange.
@@ -44,12 +50,12 @@ export function ArrangeButton({ tab, className = '' }: { tab: TabId; className?:
       onClick={() => open(tab)}
       aria-haspopup="dialog"
       aria-expanded={isOpen}
-      className={`min-h-[44px] min-w-[44px] -mr-2 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-muted hover:text-ink ${FOCUS} ${className}`}
+      className={`shrink-0 min-h-[44px] min-w-[44px] -mr-2 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-muted hover:text-ink ${FOCUS} ${className}`}
     >
       {/* The name carries the count, so a screen-reader user learns something is
           hidden without having to open the sheet to find out. */}
       <span className="sr-only">Arrange cards{hidden > 0 ? `, ${hidden} hidden` : ''}</span>
-      <GripIcon />
+      <GearIcon />
       <span aria-hidden className="hidden sm:inline text-sm">
         Arrange
       </span>
