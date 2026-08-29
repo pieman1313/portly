@@ -1,4 +1,4 @@
-import { useContext, useId, useState } from 'react'
+import { useContext, useId } from 'react'
 import type { ReactNode } from 'react'
 import type { Currency, Provenance } from '../../domain/types'
 import { SlotContext } from '../cards/slot'
@@ -398,8 +398,6 @@ export function EmptyState({
   )
 }
 
-let toggleSeq = 0
-
 export function Toggle({
   options,
   value,
@@ -414,7 +412,7 @@ export function Toggle({
   // The group needs an accessible NAME, not just a nearby span: a screen reader
   // landing on the third button otherwise announces "November, pressed" with no
   // hint that it belongs to a "Group by" control.
-  const [id] = useState(() => `toggle-${++toggleSeq}`)
+  const id = useId()
   return (
     <div className="inline-flex items-center gap-2 flex-wrap">
       {label && (

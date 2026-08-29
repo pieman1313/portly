@@ -124,6 +124,10 @@ describe('with an imported statement', () => {
     const bestMonth = pageText().match(/Best month[^A-Za-z]*([A-Z][a-z]{2} \d{4})/)?.[1]
     expect(bestMonth).toBeTruthy()
 
+    // Resolves through the Toggle's `useId` -> aria-labelledby: a screen
+    // reader has to hear which group the pressed button belongs to.
+    expect(screen.getByRole('group', { name: 'Group by' })).toBeTruthy()
+
     fireEvent.click(screen.getByRole('button', { name: 'Quarter' }))
 
     await waitFor(() => expect(pageText()).toMatch(/Quarterly totals/))

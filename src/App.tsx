@@ -16,6 +16,20 @@ const Holdings = lazy(() => import('./ui/tabs/Holdings').then((m) => ({ default:
 const Data = lazy(() => import('./ui/tabs/Data').then((m) => ({ default: m.Data })))
 
 /**
+ * The same four chunks, warmed rather than rendered. Module scope, not the
+ * shell's effect body: a dynamic `import()` inside a component is one of the
+ * forms the React Compiler declines, and having these four inline meant the
+ * whole shell was skipped for the sake of a prefetch that belongs up here with
+ * the `lazy` calls it mirrors anyway.
+ */
+function prefetchTabs(): void {
+  void import('./ui/tabs/Income')
+  void import('./ui/tabs/Forecast')
+  void import('./ui/tabs/Holdings')
+  void import('./ui/tabs/Data')
+}
+
+/**
  * App shell.
  *
  * Navigation is mobile-first: a thumb-reachable bar floating above the bottom
@@ -273,12 +287,7 @@ function AppShell() {
   useEffect(() => {
     const idle =
       window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1200))
-    const handle = idle(() => {
-      void import('./ui/tabs/Income')
-      void import('./ui/tabs/Forecast')
-      void import('./ui/tabs/Holdings')
-      void import('./ui/tabs/Data')
-    })
+    const handle = idle(prefetchTabs)
     return () => {
       if (window.cancelIdleCallback && typeof handle === 'number') {
         window.cancelIdleCallback(handle)
