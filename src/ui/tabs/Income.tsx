@@ -85,13 +85,19 @@ export function Income() {
   // The grouped buckets are a superset of the plain ones — same totals, plus
   // the per-holding split the chart stacks — so the tiles read them too rather
   // than making the view model bucket the same payments twice.
-  const income = useMemo(() => view.incomeByGrouped(period), [view.incomeByGrouped, period])
+  //
+  // Keyed on `view`, not on `view.incomeByGrouped`: the whole view model is
+  // rebuilt as one object whenever the live query emits, so the method's
+  // identity already tracks the view's exactly. Naming the method instead is
+  // no narrower in practice, and it reads as a promise the view model does not
+  // make — that this one function can change while the data behind it has not.
+  const income = useMemo(() => view.incomeByGrouped(period), [view, period])
   const buckets = income.buckets
   // The tiles always talk in months ("best month", "average month"), so they
   // read their own monthly buckets rather than whatever the period toggle says.
   const monthly = useMemo(
     () => (period === 'month' ? buckets : view.incomeBy('month')),
-    [buckets, period, view.incomeBy],
+    [buckets, period, view],
   )
   const trailing = useMemo(() => trailing12(monthly, view.today), [monthly, view.today])
   const best = useMemo(() => bestMonth(monthly), [monthly])

@@ -111,6 +111,31 @@ describe('with an imported statement', () => {
     expectNoPoison()
   })
 
+  it('Income switches the chart to quarters while the tiles stay monthly', async () => {
+    window.location.hash = '#/income'
+    renderTab(<App />)
+    await waitFor(() => expect(pageText()).toMatch(/Monthly totals/))
+    // The tiles deliberately ignore the period toggle — "best month" and
+    // "average month" only mean anything in months — so they bucket the same
+    // payments a second time, on their own. Pin what they say before the
+    // switch: a memo keyed on the wrong thing shows up here as the tiles
+    // quietly re-reading the chart's quarterly buckets.
+    // 'Best month$60.15Apr 2025' — the tile's value, then the month it names.
+    const bestMonth = pageText().match(/Best month[^A-Za-z]*([A-Z][a-z]{2} \d{4})/)?.[1]
+    expect(bestMonth).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quarter' }))
+
+    await waitFor(() => expect(pageText()).toMatch(/Quarterly totals/))
+    expect(pageText()).not.toMatch(/Monthly totals/)
+    // The bars themselves are out of reach: Recharts measures its container,
+    // and jsdom reports every element as 0x0, so the axis labels that would
+    // prove the re-bucketing are never drawn. `scripts/screenshot.mjs` is
+    // where the chart itself gets looked at.
+    expect(pageText()).toMatch(new RegExp(`Best month[^A-Za-z]*${bestMonth}`))
+    expectNoPoison()
+  })
+
   it('Forecast renders and discloses that it has no provider data', async () => {
     window.location.hash = '#/forecast'
     renderTab(<App />)
