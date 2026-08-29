@@ -6,7 +6,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/portly/',
   plugins: [
-    react(),
+    react({
+      // React Compiler: memoises components and hooks at build time, so a
+      // Dexie liveQuery emitting a new snapshot re-renders only the cards
+      // whose inputs actually changed rather than every subtree below it.
+      // React 19 ships the `react/compiler-runtime` the output imports from,
+      // so there is no extra runtime package to install.
+      babel: { plugins: [['babel-plugin-react-compiler', { target: '19' }]] },
+    }),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
